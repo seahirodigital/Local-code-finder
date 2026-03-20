@@ -1,11 +1,20 @@
 @echo off
 chcp 65001 >nul
-title PAN v2.0 - Professional Asset Nexus
+title PAN v2.0 - Professional Asset Nexusフロントエンド
+
+echo  ========================================
+echo   PAN v2.0 クリーンスタートアップ
+echo   古いバックエンド・プロセスを整理中...
+echo  ========================================
+taskkill /F /FI "WINDOWTITLE eq PAN_Backend*" >nul 2>&1
+taskkill /F /FI "WINDOWTITLE eq PAN v2.0 Backend*" >nul 2>&1
+
+:: ポート3000, 3001 を握っている node.exe 等があればKILLする (PowerShell経由で安全に)
+powershell -Command "Get-NetTCPConnection -LocalPort 3000, 3001 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }"
 
 echo.
 echo  ========================================
-echo   PAN v2.0 - Professional Asset Nexus
-echo   Starting...
+echo   PAN v2.0 - 起動開始
 echo  ========================================
 echo.
 

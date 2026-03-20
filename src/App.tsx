@@ -490,7 +490,7 @@ export default function App() {
   const [sidebarFilters, setSidebarFilters] = useState<string[]>([]); // 複数選択化
   const [tabFilter, setTabFilter] = useState('all');       // タグフィルタ
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResultIds, setSearchResultIds] = useState<Set<string>|null>(null);
+  const [searchResultPaths, setSearchResultPaths] = useState<string[]|null>(null);
   const [sortOrder, setSortOrder] = useState<'date-desc'|'date-asc'|'alpha-asc'|'alpha-desc'>('date-desc');
   const [selectedAsset, setSelectedAsset] = useState<LocalAsset | null>(null);
   const [isConnected, setIsConnected] = useState(false);
@@ -536,26 +536,34 @@ export default function App() {
     setSelectedAsset(a);
   };
   const handleNavToggle = (nav: string) => {
+    // サイドバーを押した時は、上のタブを「すべて」に戻す
+    setTabFilter('all');
     setSidebarFilters(prev => prev.includes(nav) ? prev.filter(n => n !== nav) : [...prev, nav]);
+  };
+
+  const handleTabClick = (tabId: string) => {
+    // 上のタブを押した時は、左サイドバーの絞り込みを解除する
+    setSidebarFilters([]);
+    setTabFilter(tabId);
   };
 
   // ファイル直下検索 APIとの連携
   useEffect(() => {
     if (searchQuery.length < 2) {
-      setSearchResultIds(null);
+      setSearchResultPaths(null);
       return;
     }
     const timer = setTimeout(async () => {
       try {
         const res = await fetch(`${API_BASE}/api/search?q=${encodeURIComponent(searchQuery)}`);
         const data = await res.json();
-        setSearchResultIds(new Set(data.ids));
-      } catch { setSearchResultIds(new Set()); }
+        setSearchResultPaths(data.paths);
+      } catch { setSearchResultPaths([]); }
     }, 400); // debounce 400ms
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  // フィルタ
+// フィルタ
   let filtered = assets.filter((a) => {
     const rawTags = a.tags || [(a as any).tag];
     if (sidebarFilters.length > 0 && !sidebarFilters.includes(a.domain)) return false;
@@ -565,18 +573,18 @@ export default function App() {
         const q = searchQuery.toLowerCase();
         if (!a.title.toLowerCase().includes(q) && !a.description.toLowerCase().includes(q) && !a.filePath.toLowerCase().includes(q)) return false;
       } else {
-        // バックエンドからIDが返ってきていない場合はいったん全体検索
         const q = searchQuery.toLowerCase();
         const baseMatch = a.title.toLowerCase().includes(q) || a.description.toLowerCase().includes(q) || a.filePath.toLowerCase().includes(q);
-        if (searchResultIds) {
-          // IDリストに含まれているか(Base64)
-          const assetIdBase64 = btoa(unescape(encodeURIComponent(a.dirPath || a.filePath))); // 簡易マッチ用
-          if (!baseMatch && !searchResultIds.has(assetIdBase64)) {
-            // ディレクトリの場合、配下のいずれかがマッチしていれば表示したい
+        if (searchResultPaths) {
+          if (!baseMatch) {
+            // パスマッチング (生の文字列で簡単に確認)
+            const nPath = a.filePath.replace(/\\/g, '/');
             let foundChild = false;
-            searchResultIds.forEach(id => {
-              try { const p = decodeURIComponent(escape(atob(id))); if (p.startsWith(a.filePath)) foundChild = true; } catch {}
-            });
+            for (const rp of searchResultPaths) {
+              if (rp.startsWith(nPath)) {
+                foundChild = true; break;
+              }
+            }
             if (!foundChild) return false;
           }
         } else {
@@ -615,7 +623,7 @@ export default function App() {
       <Sidebar activeNavs={sidebarFilters} onNavToggle={handleNavToggle} onSettingsClick={() => setShowPathManager(true)} />
       <Header searchQuery={searchQuery} setSearchQuery={setSearchQuery} assetCount={assets.length} isConnected={isConnected} isScanning={isScanning} onRefresh={handleRefresh} isDark={isDark} onToggleTheme={() => setIsDark(!isDark)} />
       <main className="ml-20 mt-14 flex-1 flex flex-col h-[calc(100vh-3.5rem)] relative">
-        <CategoryTabs selected={tabFilter} onSelect={setTabFilter} counts={counts} onAddPath={() => setShowPathManager(true)} />
+        <CategoryTabs selected={tabFilter} onSelect={handleTabClick} counts={counts} onAddPath={() => setShowPathManager(true)} />
         <div className="flex-1 overflow-y-auto p-10 relative z-10">
           {!isConnected && (
             <div className="mb-6 flex items-center gap-3 bg-error/10 border border-error/20 px-4 py-3 rounded-lg">

@@ -201,10 +201,10 @@ app.delete('/api/paths', (req, res) => {
 app.get('/api/search', (req, res) => {
   const query = (req.query.q as string || '').toLowerCase();
   if (!query || query.length < 2) {
-    return res.json({ ids: [] });
+    return res.json({ paths: [] });
   }
 
-  const ids = new Set<string>();
+  const resultPaths = new Set<string>();
   const textExts = new Set(['.md', '.txt', '.py', '.js', '.ts', '.jsx', '.tsx', '.gs', '.json', '.html', '.css', '.csv']);
   const skipDirs = new Set(['node_modules', '__pycache__', '.git', 'dist', 'build', '.next', '.cache', 'coverage', '.venv', 'env', 'venv']);
   
@@ -229,12 +229,11 @@ app.get('/api/search', (req, res) => {
                 } catch {}
             }
             if (match) {
-                // ファイル自身がAssetsにあればIDを、なければ親ディレクトリのIDを(簡易的に)
-                ids.add(Buffer.from(fp).toString('base64')); // AssetID生成と同一にする必要があるが
-                ids.add(Buffer.from(dir).toString('base64')); // 親ディレクトリ
+                resultPaths.add(fp.replace(/\\/g, '/')); // 一致したファイルパス
+                resultPaths.add(dir.replace(/\\/g, '/')); // 親ディレクトリパス
             }
         } else if (entry.isDirectory()) {
-            if (match) ids.add(Buffer.from(fp).toString('base64'));
+            if (match) resultPaths.add(fp.replace(/\\/g, '/'));
             searchDir(fp, depth + 1);
         }
       }
@@ -247,7 +246,7 @@ app.get('/api/search', (req, res) => {
      searchDir(p, 1);
   }
 
-  res.json({ ids: Array.from(ids) });
+  res.json({ paths: Array.from(resultPaths) });
 });
 
 // フォルダをエクスプローラーで開く

@@ -237,26 +237,15 @@ export function scanDirectory(rootPath: string, config: ScanConfig, currentDepth
         const stat = fs.statSync(fullPath);
         const isDir = entry.isDirectory();
 
-        // GASプロジェクト配下の個別ファイルはスキップ（ディレクトリのみ表示するため）
-        if (!isDir && isUnderGASFolder(fullPath)) continue;
+        // 究極の仕様：ユーザーダッシュボードには「プロジェクト（フォルダ）」のカードのみを表示する。
+        // 最下層や中の個別ファイルは一切アセットとして取り込まない！
+        if (!isDir) continue;
 
         // 複数タグ対応と生成
-        let tags: AssetTag[];
-        let language: string;
+        const result = inferTagsForDirectory(fullPath, normalizedRoot);
+        let tags = result.tags;
+        let language = result.language;
         let description: string = '';
-
-        if (isDir) {
-          const result = inferTagsForDirectory(fullPath, normalizedRoot);
-          tags = result.tags;
-          language = result.language;
-          // 説明文は省略（フロントでもう少し汎用的になにか表示する）
-        } else {
-          const result = inferTagForFile(fullPath);
-          if (!result) continue;
-          tags = result.tags;
-          language = result.language;
-          if (stat.size > config.maxFileSize) continue;
-        }
 
         const domain = inferDomain(fullPath);
 
@@ -281,7 +270,7 @@ export function scanDirectory(rootPath: string, config: ScanConfig, currentDepth
         // 1) 事業開発スキル配下（SKILL.md持ちサブを個別に拾う）
         // 2) Google Apps Script フォルダ（配下サブフォルダを個別GASとして拾う）
         const norm = fullPath.replace(/\\/g, '/').toLowerCase();
-        const shouldRecurse = isDir && currentDepth < config.maxDepth && (
+        const shouldRecurse = currentDepth < config.maxDepth && (
           (norm.includes('事業開発スキル') && !hasSkillMd(fullPath)) ||
           isUnderGASFolder(fullPath)
         );
