@@ -483,6 +483,59 @@ const ExecutionResult = ({ isOpen, onClose, result }: { isOpen: boolean; onClose
   );
 };
 
+// === ScriptSelectModal ===
+const ScriptSelectModal = ({ isOpen, onClose, directoryPath, onExecute }: { isOpen: boolean; onClose: () => void; directoryPath: string | null; onExecute: (p: string) => void }) => {
+  const [pyFiles, setPyFiles] = useState<{name: string, path: string}[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (isOpen && directoryPath) {
+      setLoading(true);
+      fetchDirectoryTree(directoryPath).then(tree => {
+        const findPyFiles = (nodes: any[], result: any[] = []) => {
+          for (const node of nodes) {
+            if (node.type === 'file' && node.name.endsWith('.py')) {
+              result.push(node);
+            } else if (node.type === 'directory' && node.children) {
+              findPyFiles(node.children, result);
+            }
+          }
+          return result;
+        };
+        setPyFiles(findPyFiles(tree));
+        setLoading(false);
+      }).catch(() => { setPyFiles([]); setLoading(false); });
+    }
+  }, [isOpen, directoryPath]);
+
+  if (!isOpen) return null;
+
+  return (
+    <AnimatePresence>
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-background/60 backdrop-blur-sm z-[70] flex items-center justify-center" onClick={onClose}>
+        <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} onClick={(e) => e.stopPropagation()} className="bg-surface-container-low border border-outline-variant/20 rounded-2xl shadow-2xl w-full max-w-lg mx-4 flex flex-col max-h-[80vh]">
+          <div className="flex items-center justify-between p-6 border-b border-outline-variant/10 shrink-0">
+            <div className="flex items-center gap-3"><Play size={20} className="text-primary" /><h2 className="text-lg font-bold text-on-surface font-headline tracking-tight">実行するファイルを選択</h2></div>
+            <button onClick={onClose} className="text-slate-500 hover:text-on-surface transition-colors"><X size={20} /></button>
+          </div>
+          <div className="p-6 overflow-y-auto flex-1">
+            {loading ? <div className="flex items-center justify-center py-8 text-slate-500"><Loader2 size={24} className="animate-spin" /></div> : pyFiles.length > 0 ? (
+              <div className="space-y-2">
+                {pyFiles.map(file => (
+                  <div key={file.path} className="flex items-center justify-between bg-surface-container-lowest px-4 py-3 rounded-lg border border-outline-variant/10 group hover:border-primary/50 transition-colors">
+                    <div className="flex items-center gap-3 min-w-0"><FileText size={16} className="text-slate-500 shrink-0" /><div className="flex flex-col min-w-0"><span className="text-sm font-bold text-on-surface truncate">{file.name}</span><span className="text-[10px] font-mono text-slate-500 truncate" title={file.path}>{file.path}</span></div></div>
+                    <button onClick={() => { onExecute(file.path); onClose(); }} className="bg-gradient-to-br from-primary to-primary-container px-3 py-1.5 rounded-md text-[11px] font-bold text-on-primary hover:opacity-90 transition-all shadow-[0_4px_12px_rgba(103,217,201,0.2)] flex items-center gap-1 shrink-0 ml-4"><Play size={12} /> 実行</button>
+                  </div>
+                ))}
+              </div>
+            ) : <div className="text-center py-8 text-slate-500"><p className="text-sm">実行可能なPythonファイルが見つかりません</p></div>}
+          </div>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  );
+};
+
 // === Main App ===
 export default function App() {
   const [assets, setAssets] = useState<LocalAsset[]>([]);
@@ -498,6 +551,8 @@ export default function App() {
   const [showPathManager, setShowPathManager] = useState(false);
   const [execResult, setExecResult] = useState<{ success: boolean; stdout: string; stderr: string } | null>(null);
   const [showExecResult, setShowExecResult] = useState(false);
+  const [showScriptSelect, setShowScriptSelect] = useState(false);
+  const [scriptSelectDirPath, setScriptSelectDirPath] = useState<string | null>(null);
   const [isDark, setIsDark] = useState(false); // Light mode default
 
   useEffect(() => {
@@ -523,10 +578,20 @@ export default function App() {
   const handleRefresh = async () => { setIsScanning(true); try { await triggerScan(); setAssets(await fetchAssets()); } catch {} setIsScanning(false); };
   const handleReveal = async (a: LocalAsset) => { await revealInExplorer(a.isDirectory ? a.filePath : a.dirPath); };
   const handleExecute = async (a: LocalAsset) => {
-    if (a.filePath.endsWith('.py') || (a.isDirectory && a.executable)) {
+    if (a.filePath.endsWith('.py')) {
       const r = await executeScript(a.filePath);
       setExecResult(r); setShowExecResult(true);
-    } else { await revealInExplorer(a.filePath); }
+    } else if (a.isDirectory && a.executable) {
+      setScriptSelectDirPath(a.filePath);
+      setShowScriptSelect(true);
+    } else { 
+      await revealInExplorer(a.filePath); 
+    }
+  };
+
+  const executeSelectedScript = async (scriptPath: string) => {
+    const r = await executeScript(scriptPath);
+    setExecResult(r); setShowExecResult(true);
   };
   const handleView = async (a: LocalAsset) => {
     if (a.filePath.toLowerCase().endsWith('.pdf')) {
@@ -675,6 +740,7 @@ export default function App() {
       <CodeViewer asset={selectedAsset} onClose={() => setSelectedAsset(null)} />
       <AnimatePresence>{selectedAsset && <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setSelectedAsset(null)} className="fixed inset-0 bg-black/5 z-50" />}</AnimatePresence>
       <PathManager isOpen={showPathManager} onClose={() => setShowPathManager(false)} paths={paths} onAddPath={(p) => { setPaths([...paths, p]); handleRefresh(); }} onRemovePath={(p) => { setPaths(paths.filter(pp => pp !== p)); handleRefresh(); }} />
+      <ScriptSelectModal isOpen={showScriptSelect} onClose={() => setShowScriptSelect(false)} directoryPath={scriptSelectDirPath} onExecute={executeSelectedScript} />
       <ExecutionResult isOpen={showExecResult} onClose={() => setShowExecResult(false)} result={execResult} />
     </div>
   );
