@@ -1,6 +1,32 @@
 @import "tailwindcss";
 
+/* Light Theme (default) */
 @theme {
+  --color-background: #f8fafb;
+  --color-surface: #f8fafb;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-low: #f0f3f5;
+  --color-surface-container: #e8ecef;
+  --color-surface-container-high: #dde2e6;
+  --color-surface-container-highest: #d0d6db;
+  --color-primary: #00897b;
+  --color-primary-container: #a7f3d0;
+  --color-secondary: #4a5bbd;
+  --color-tertiary: #c97b3a;
+  --color-error: #d32f2f;
+  --color-outline-variant: #c4c7ce;
+  --color-on-surface: #1a1c1e;
+  --color-on-surface-variant: #44474e;
+  --color-on-primary: #ffffff;
+
+  --font-headline: "Space Grotesk", sans-serif;
+  --font-body: "Inter", sans-serif;
+  --font-label: "Inter", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+}
+
+/* Dark Theme Override */
+html.dark {
   --color-background: #0b1326;
   --color-surface: #0b1326;
   --color-surface-container-lowest: #060e20;
@@ -17,14 +43,9 @@
   --color-on-surface: #dae2fd;
   --color-on-surface-variant: #c5c5d4;
   --color-on-primary: #003731;
-
-  --font-headline: "Space Grotesk", sans-serif;
-  --font-body: "Inter", sans-serif;
-  --font-label: "Inter", sans-serif;
-  --font-mono: "JetBrains Mono", monospace;
 }
 
-/* Custom scrollbar for the code viewer */
+/* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
