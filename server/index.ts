@@ -11,10 +11,37 @@ import { FileWatcher } from './watcher.js';
 const CONFIG_PATH = path.join(process.cwd(), 'pan-config.json');
 const PORT = 3001;
 
+// OSごとのパスの違いを吸収する関数（Windows <-> Mac）
+function getCrossPlatformPath(p: string): string {
+  let normalized = p.replace(/\\/g, '/');
+  const isMac = process.platform === 'darwin';
+
+  if (isMac) {
+    // WindowsのパスをMac用に変換
+    if (normalized.match(/^[A-Za-z]:\/Users\/HCY\/OneDrive/i)) {
+      normalized = normalized.replace(/^[A-Za-z]:\/Users\/HCY\/OneDrive/i, '/Users/user/Library/CloudStorage/OneDrive-個人用');
+    } else if (normalized.match(/^[A-Za-z]:\/Users\/HCY/i)) {
+      normalized = normalized.replace(/^[A-Za-z]:\/Users\/HCY/i, '/Users/user');
+    }
+  } else {
+    // MacのパスをWindows用に変換
+    if (normalized.startsWith('/Users/user/Library/CloudStorage/OneDrive-個人用')) {
+      normalized = normalized.replace('/Users/user/Library/CloudStorage/OneDrive-個人用', 'C:/Users/HCY/OneDrive');
+    } else if (normalized.startsWith('/Users/user')) {
+      normalized = normalized.replace('/Users/user', 'C:/Users/HCY');
+    }
+  }
+  return path.normalize(normalized);
+}
+
 // 設定読み込み
 function loadConfig() {
   try {
-    return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
+    const config = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
+    if (config.watchPaths && Array.isArray(config.watchPaths)) {
+      config.watchPaths = config.watchPaths.map((p: string) => getCrossPlatformPath(p));
+    }
+    return config;
   } catch {
     const defaultConfig = {
       watchPaths: [],
@@ -344,7 +371,7 @@ app.post('/api/execute', (req, res) => {
     return res.status(400).json({ error: '有効なPythonスクリプトではありません' });
   }
 
-  exec(`python "${normalizedPath}"`, { timeout: 30000 }, (error, stdout, stderr) => {
+  exec(`python "${normalizedPath}"`, { timeout: 30000, env: { ...process.env, PYTHONIOENCODING: 'utf-8' } }, (error, stdout, stderr) => {
     res.json({
       success: !error,
       stdout: stdout || '',
