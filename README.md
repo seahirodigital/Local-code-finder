@@ -32,7 +32,11 @@ Material Design 3ベースのダッシュボードで一覧・閲覧・実行で
 
 ### ダブルクリックで起動（推奨）
 
-`start.bat` をダブルクリックするだけで、バックエンド・フロントエンド・ブラウザが自動起動します。
+| OS | ファイル | 説明 |
+|----|---------|------|
+| Windows | `start.bat` | バックエンド・フロントエンド・ブラウザが自動起動 |
+| Mac | `start.command` | 同上（初回は `clean-setup.command` を先に実行） |
+
 初回実行時は `npm install` も自動実行されます。
 
 ### コマンドから起動
@@ -57,26 +61,48 @@ npm run dev      # フロントエンド (port 3000)
 
 ```
 C:\Users\HCY\OneDrive\開発\Local-code-finder\
-├── start.bat                 # ダブルクリック起動用バッチ
-├── pan-config.json           # 監視パス・設定（自動生成・UI管理）
-├── package.json              # npm設定・スクリプト定義
-├── vite.config.ts            # Viteビルド設定（APIプロキシ含む）
-├── tsconfig.json             # TypeScript設定
-├── index.html                # エントリーHTML
-├── .gitignore
-├── .env.example
 │
-├── server/                   # バックエンド（Express + WebSocket）
-│   ├── index.ts              # APIサーバー本体（ルーティング・WS・監視起動）
-│   ├── scanner.ts            # ファイルスキャン＆カテゴリ自動判定ロジック
-│   └── watcher.ts            # chokidarによるリアルタイムファイル監視
+├── server/                     # バックエンド（Express + WebSocket）
+│   ├── index.ts                #   APIサーバー本体（ルーティング・WS・監視起動）
+│   ├── scanner.ts              #   ファイルスキャン＆カテゴリ自動判定ロジック
+│   └── watcher.ts              #   chokidarによるリアルタイムファイル監視
 │
-└── src/                      # フロントエンド（React + Tailwind CSS）
-    ├── main.tsx              # Reactエントリーポイント
-    ├── App.tsx               # メインUIコンポーネント（全画面構成）
-    ├── types.ts              # TypeScript型定義
-    └── index.css             # Tailwind CSS + Dark/Lightテーマ定義
+├── src/                        # フロントエンド（React + Tailwind CSS）
+│   ├── main.tsx                #   Reactエントリーポイント
+│   ├── App.tsx                 #   メインUIコンポーネント（全画面構成）
+│   ├── types.ts                #   TypeScript型定義
+│   └── index.css               #   Tailwind CSS + Dark/Lightテーマ定義
+│
+├── node_modules/               # → C:\node_modules_store\local-code-finder\node_modules（ジャンクション）
+│                               #   実体はOneDrive外に配置。同期・肥大化を防止
+│
+├── start.bat                   # Windows用 起動スクリプト（ダブルクリック）
+├── start-backend.bat           # Windows用 バックエンド起動（start.batから呼ばれる）
+├── start.command               # Mac用 起動スクリプト（ダブルクリック）
+├── start-backend.command       # Mac用 バックエンド起動（start.commandから呼ばれる）
+├── clean-setup.command         # Mac用 クリーンセットアップ（node_modules再構築）
+│
+├── pan-config.json             # 監視パス・設定（自動生成・UI管理）
+├── package.json                # npm設定・スクリプト定義
+├── package-lock.json           # npm依存関係ロックファイル
+├── vite.config.ts              # Viteビルド設定（APIプロキシ含む）
+├── tsconfig.json               # TypeScript設定
+├── index.html                  # エントリーHTML
+├── .gitignore                  # Git除外設定
+└── README.md                   # このファイル
 ```
+
+### node_modules の配置について
+
+`node_modules` はOneDrive同期とGitHubアップロードを防ぐため、OneDrive外にジャンクションで配置しています。
+
+| 項目 | パス |
+|------|------|
+| 実体 | `C:\node_modules_store\local-code-finder\node_modules\` |
+| リンク | プロジェクト内の `node_modules/`（ジャンクション） |
+
+スクリプトからは通常通り `node_modules` を参照でき、動作に影響はありません。
+他のプロジェクトでも同様に `C:\node_modules_store\<プロジェクト名>\` に配置可能です。
 
 ---
 

@@ -7,7 +7,6 @@ import {
   MoreHorizontal,
   Settings,
   Search,
-  UserCircle,
   Plus,
   Eye,
   FolderSearch,
@@ -32,6 +31,8 @@ import {
   Terminal,
   Puzzle,
   Share2,
+  Star,
+  Pin,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Asset, AssetTag, AssetDomain } from './types';
@@ -86,6 +87,13 @@ async function fetchDirectoryTree(dirPath: string): Promise<any[]> {
   const res = await fetch(`${API_BASE}/api/tree?path=${encodeURIComponent(dirPath)}`);
   return (await res.json()).tree;
 }
+async function fetchPreferences(): Promise<{ favorites: string[]; pinned: string[] }> {
+  const res = await fetch(`${API_BASE}/api/preferences`);
+  return res.json();
+}
+async function savePreferences(favorites: string[], pinned: string[]) {
+  await fetch(`${API_BASE}/api/preferences`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ favorites, pinned }) });
+}
 
 // === WebSocket Hook ===
 function useWebSocket(onMessage: (data: any) => void) {
@@ -105,9 +113,14 @@ function useWebSocket(onMessage: (data: any) => void) {
 }
 
 // === Sidebar (ドメイン: ビジネス/投資/エンジニア/総務/その他) ===
-const Sidebar = ({ activeNavs, onNavToggle, onSettingsClick }: { activeNavs: string[]; onNavToggle: (n: string) => void; onSettingsClick: () => void }) => (
+const Sidebar = ({ activeNavs, onNavToggle, onSettingsClick, showFavorites, onFavoritesClick, favCount }: { activeNavs: string[]; onNavToggle: (n: string) => void; onSettingsClick: () => void; showFavorites: boolean; onFavoritesClick: () => void; favCount: number }) => (
   <aside className="fixed left-0 top-0 h-screen w-20 border-r border-outline-variant/15 bg-surface-container-low flex flex-col items-center py-8 gap-6 z-50 shadow-md">
     <nav className="flex flex-col flex-1 gap-2 w-full px-2">
+      <button onClick={onFavoritesClick} className={`relative w-full flex flex-col items-center transition-all p-2 rounded-xl ${showFavorites ? 'bg-yellow-500 text-white shadow-md' : 'text-slate-500 hover:bg-surface-container-high hover:text-yellow-500'}`} title="お気に入り">
+        <Star size={20} fill={showFavorites ? 'currentColor' : 'none'} />
+        {favCount > 0 && <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-yellow-500 text-white text-[8px] font-bold flex items-center justify-center">{favCount}</span>}
+      </button>
+      <div className="my-2 mx-2 border-t border-outline-variant/15"></div>
       <NavItem icon={<Briefcase size={20} />} label="ビジネス" active={activeNavs.includes('Business')} onClick={() => onNavToggle('Business')} />
       <NavItem icon={<TrendingUp size={20} />} label="投資" active={activeNavs.includes('Investment')} onClick={() => onNavToggle('Investment')} />
       <NavItem icon={<Code2 size={20} />} label="エンジニア" active={activeNavs.includes('Engineer')} onClick={() => onNavToggle('Engineer')} />
@@ -145,10 +158,9 @@ const Header = ({ searchQuery, setSearchQuery, assetCount, isConnected, isScanni
       <button onClick={onRefresh} className="text-slate-500 hover:text-primary transition-colors" title="再スキャン"><RefreshCw size={16} className={isScanning ? 'animate-spin' : ''} /></button>
       <button onClick={onToggleTheme} className="text-slate-500 hover:text-primary transition-colors" title="テーマ切替">{isDark ? <Sun size={16} /> : <Moon size={16} />}</button>
       <div className="flex flex-col items-end">
-        <span className="text-xs font-bold text-primary font-headline">PAN v2.0</span>
+        <span className="text-xs font-bold text-primary font-headline">Local Finder</span>
         <span className="text-[10px] text-slate-500 font-label uppercase tracking-widest">{assetCount} Assets</span>
       </div>
-      <div className="w-8 h-8 rounded-lg bg-surface-container-highest flex items-center justify-center border border-outline-variant/20"><UserCircle size={20} className="text-primary" /></div>
     </div>
   </header>
 );
@@ -237,8 +249,8 @@ function getDomainColor(d: AssetDomain) {
 }
 
 // === AssetCard (ダブルクリックでViewer) ===
-const AssetCard = ({ asset, onView, onReveal, onExecute }: {
-  asset: LocalAsset; onView: (a: LocalAsset) => void; onReveal: (a: LocalAsset) => void; onExecute: (a: LocalAsset) => void; key?: React.Key;
+const AssetCard = ({ asset, onView, onReveal, onExecute, isFavorite, isPinned, onToggleFavorite, onTogglePin }: {
+  asset: LocalAsset; onView: (a: LocalAsset) => void; onReveal: (a: LocalAsset) => void; onExecute: (a: LocalAsset) => void; isFavorite: boolean; isPinned: boolean; onToggleFavorite: (id: string) => void; onTogglePin: (id: string) => void; key?: React.Key;
 }) => (
   <motion.div
     layout
@@ -247,10 +259,11 @@ const AssetCard = ({ asset, onView, onReveal, onExecute }: {
     exit={{ opacity: 0, scale: 0.95 }}
     transition={{ duration: 0.2 }}
     onDoubleClick={() => onView(asset)}
-    className="group bg-surface-container-low hover:bg-surface-container border border-outline-variant/10 hover:border-primary/30 rounded-xl p-4 transition-all duration-300 flex flex-col h-full shadow-[0_4px_20px_rgba(6,14,32,0.08)] hover:shadow-[0_8px_30px_rgba(6,14,32,0.15)] cursor-pointer select-none"
+    className={`group bg-surface-container-low hover:bg-surface-container border rounded-xl p-4 transition-all duration-300 flex flex-col h-full shadow-[0_4px_20px_rgba(6,14,32,0.08)] hover:shadow-[0_8px_30px_rgba(6,14,32,0.15)] cursor-pointer select-none ${isPinned ? 'border-primary/40 ring-1 ring-primary/20' : 'border-outline-variant/10 hover:border-primary/30'}`}
   >
     <div className="flex justify-between items-start mb-4">
       <div className="flex flex-wrap items-center gap-2">
+        {isPinned && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-primary/10 text-primary border-primary/20 tracking-wider flex items-center gap-1"><Pin size={10} />PIN</span>}
         {(asset.tags || [(asset as any).tag]).map(t => (
           <span key={t} className={`text-[10px] font-bold px-2 py-0.5 rounded-full border tracking-wider flex items-center gap-1 ${getTagStyles(t)}`}>
             {getTagIcon(t)}{getTagLabel(t)}
@@ -262,11 +275,14 @@ const AssetCard = ({ asset, onView, onReveal, onExecute }: {
           </span>
         )}
       </div>
-      <div className="flex gap-3 opacity-40 group-hover:opacity-100 transition-opacity">
-        <button onClick={(e) => { e.stopPropagation(); onView(asset); }} className="hover:text-primary transition-colors" title="コードを表示"><Eye size={16} /></button>
-        <button onClick={(e) => { e.stopPropagation(); onReveal(asset); }} className="hover:text-primary transition-colors" title="フォルダを開く"><FolderSearch size={16} /></button>
+      <div className="flex gap-2 items-center">
+        <button onClick={(e) => { e.stopPropagation(); onToggleFavorite(asset.id); }} className={`transition-colors ${isFavorite ? 'text-yellow-500' : 'opacity-40 group-hover:opacity-100 text-slate-400 hover:text-yellow-500'}`} title="お気に入り"><Star size={16} fill={isFavorite ? 'currentColor' : 'none'} /></button>
+        <button onClick={(e) => { e.stopPropagation(); onTogglePin(asset.id); }} className={`transition-colors ${isPinned ? 'text-primary' : 'opacity-40 group-hover:opacity-100 text-slate-400 hover:text-primary'}`} title="ピン留め"><Pin size={16} /></button>
+        <div className="w-px h-4 bg-outline-variant/15 mx-0.5"></div>
+        <button onClick={(e) => { e.stopPropagation(); onView(asset); }} className="opacity-40 group-hover:opacity-100 hover:text-primary transition-colors" title="コードを表示"><Eye size={16} /></button>
+        <button onClick={(e) => { e.stopPropagation(); onReveal(asset); }} className="opacity-40 group-hover:opacity-100 hover:text-primary transition-colors" title="フォルダを開く"><FolderSearch size={16} /></button>
         {asset.executable && (
-          <button onClick={(e) => { e.stopPropagation(); onExecute(asset); }} className="hover:text-primary transition-colors" title="実行"><Play size={16} /></button>
+          <button onClick={(e) => { e.stopPropagation(); onExecute(asset); }} className="opacity-40 group-hover:opacity-100 hover:text-primary transition-colors" title="実行"><Play size={16} /></button>
         )}
       </div>
     </div>
@@ -543,10 +559,10 @@ export default function App() {
   const [sidebarFilters, setSidebarFilters] = useState<string[]>([]); // 複数選択化
   const [tabFilter, setTabFilter] = useState('all');       // タグフィルタ
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResultPaths, setSearchResultPaths] = useState<string[]|null>(null);
   const [sortOrder, setSortOrder] = useState<'date-desc'|'date-asc'|'alpha-asc'|'alpha-desc'>('date-desc');
   const [selectedAsset, setSelectedAsset] = useState<LocalAsset | null>(null);
   const [isConnected, setIsConnected] = useState(false);
+  const [hasTriedConnect, setHasTriedConnect] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [showPathManager, setShowPathManager] = useState(false);
   const [execResult, setExecResult] = useState<{ success: boolean; stdout: string; stderr: string } | null>(null);
@@ -554,13 +570,18 @@ export default function App() {
   const [showScriptSelect, setShowScriptSelect] = useState(false);
   const [scriptSelectDirPath, setScriptSelectDirPath] = useState<string | null>(null);
   const [isDark, setIsDark] = useState(false); // Light mode default
+  const [favorites, setFavorites] = useState<string[]>([]);
+  const [pinned, setPinned] = useState<string[]>([]);
+  const [showFavorites, setShowFavorites] = useState(false);
 
   useEffect(() => {
     (async () => {
       try {
-        const [a, p] = await Promise.all([fetchAssets(), fetchPaths()]);
+        const [a, p, prefs] = await Promise.all([fetchAssets(), fetchPaths(), fetchPreferences()]);
         setAssets(a); setPaths(p); setIsConnected(true);
+        setFavorites(prefs.favorites || []); setPinned(prefs.pinned || []);
       } catch { setIsConnected(false); }
+      setHasTriedConnect(true);
     })();
   }, []);
 
@@ -574,6 +595,26 @@ export default function App() {
     document.documentElement.classList.toggle('dark', isDark);
     document.documentElement.classList.toggle('light', !isDark);
   }, [isDark]);
+
+  const toggleFavorite = (id: string) => {
+    setFavorites(prev => {
+      const next = prev.includes(id) ? prev.filter(f => f !== id) : [...prev, id];
+      savePreferences(next, pinned);
+      return next;
+    });
+  };
+  const togglePin = (id: string) => {
+    setPinned(prev => {
+      const next = prev.includes(id) ? prev.filter(f => f !== id) : [...prev, id];
+      savePreferences(favorites, next);
+      return next;
+    });
+  };
+  const handleFavoritesClick = () => {
+    setShowFavorites(prev => !prev);
+    setSidebarFilters([]);
+    setTabFilter('all');
+  };
 
   const handleRefresh = async () => { setIsScanning(true); try { await triggerScan(); setAssets(await fetchAssets()); } catch {} setIsScanning(false); };
   const handleReveal = async (a: LocalAsset) => { await revealInExplorer(a.isDirectory ? a.filePath : a.dirPath); };
@@ -601,75 +642,39 @@ export default function App() {
     setSelectedAsset(a);
   };
   const handleNavToggle = (nav: string) => {
-    // サイドバーを押した時は、上のタブを「すべて」に戻す
     setTabFilter('all');
+    setShowFavorites(false);
     setSidebarFilters(prev => prev.includes(nav) ? prev.filter(n => n !== nav) : [...prev, nav]);
   };
 
   const handleTabClick = (tabId: string) => {
-    // 上のタブを押した時は、左サイドバーの絞り込みを解除する
     setSidebarFilters([]);
+    setShowFavorites(false);
     setTabFilter(tabId);
   };
 
-  // ファイル直下検索 APIとの連携
-  useEffect(() => {
-    if (searchQuery.length < 2) {
-      setSearchResultPaths(null);
-      return;
-    }
-    const timer = setTimeout(async () => {
-      try {
-        const res = await fetch(`${API_BASE}/api/search?q=${encodeURIComponent(searchQuery)}`);
-        const data = await res.json();
-        setSearchResultPaths(data.paths);
-      } catch { setSearchResultPaths([]); }
-    }, 400); // debounce 400ms
-    return () => clearTimeout(timer);
-  }, [searchQuery]);
-
 // フィルタ
   let filtered = assets.filter((a) => {
+    if (showFavorites && !favorites.includes(a.id)) return false;
     const rawTags = a.tags || [(a as any).tag];
     if (sidebarFilters.length > 0 && !sidebarFilters.includes(a.domain)) return false;
     if (tabFilter !== 'all' && !rawTags.includes(tabFilter as any)) return false;
     if (searchQuery) {
-      if (searchQuery.length < 2) {
-        const q = searchQuery.toLowerCase();
-        if (!a.title.toLowerCase().includes(q) && !a.description.toLowerCase().includes(q) && !a.filePath.toLowerCase().includes(q)) return false;
-      } else {
-        const q = searchQuery.toLowerCase();
-        const baseMatch = a.title.toLowerCase().includes(q) || a.description.toLowerCase().includes(q) || a.filePath.toLowerCase().includes(q);
-        if (searchResultPaths) {
-          if (!baseMatch) {
-            // パスマッチング (生の文字列で簡単に確認)
-            const nPath = a.filePath.replace(/\\/g, '/');
-            let foundChild = false;
-            for (const rp of searchResultPaths) {
-              if (rp.startsWith(nPath)) {
-                foundChild = true; break;
-              }
-            }
-            if (!foundChild) return false;
-          }
-        } else {
-          if (!baseMatch) return false;
-        }
-      }
+      const q = searchQuery.toLowerCase();
+      if (!a.title.toLowerCase().includes(q) && !a.description.toLowerCase().includes(q) && !a.filePath.toLowerCase().includes(q)) return false;
     }
     return true;
   });
 
-  // ソート
+  // ソート（ピン留めは常に上位）
   filtered = filtered.sort((a, b) => {
+    const aPinned = pinned.includes(a.id) ? 1 : 0;
+    const bPinned = pinned.includes(b.id) ? 1 : 0;
+    if (aPinned !== bPinned) return bPinned - aPinned;
     if (sortOrder === 'alpha-asc') return a.title.localeCompare(b.title);
     if (sortOrder === 'alpha-desc') return b.title.localeCompare(a.title);
-    // 日付ソート（文字列として比較、ISO等に完全準拠していない簡易フォーマットの場合は不正確な場合があるが）
-    // とりあえず "X分前" などの「前」が含まれるものと、"yyyy/mm/dd" が混同するのを防ぐ簡易ソートが必要
-    // 今回は簡易的に文字列比較で対処（本格的にはタイムスタンプを持たせるべきだが）
-    // 便宜上localeCompare
-    if (sortOrder === 'date-desc') return a.lastModified === b.lastModified ? 0 : -1; // Fallback: lastModified format differs
-    if (sortOrder === 'date-asc') return a.lastModified === b.lastModified ? 0 : 1; 
+    if (sortOrder === 'date-desc') return a.lastModified === b.lastModified ? 0 : -1;
+    if (sortOrder === 'date-asc') return a.lastModified === b.lastModified ? 0 : 1;
     return 0;
   });
 
@@ -685,12 +690,18 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-background text-on-surface font-body flex">
-      <Sidebar activeNavs={sidebarFilters} onNavToggle={handleNavToggle} onSettingsClick={() => setShowPathManager(true)} />
+      <Sidebar activeNavs={sidebarFilters} onNavToggle={handleNavToggle} onSettingsClick={() => setShowPathManager(true)} showFavorites={showFavorites} onFavoritesClick={handleFavoritesClick} favCount={favorites.length} />
       <Header searchQuery={searchQuery} setSearchQuery={setSearchQuery} assetCount={assets.length} isConnected={isConnected} isScanning={isScanning} onRefresh={handleRefresh} isDark={isDark} onToggleTheme={() => setIsDark(!isDark)} />
       <main className="ml-20 mt-14 flex-1 flex flex-col h-[calc(100vh-3.5rem)] relative">
         <CategoryTabs selected={tabFilter} onSelect={handleTabClick} counts={counts} onAddPath={() => setShowPathManager(true)} />
         <div className="flex-1 overflow-y-auto p-10 relative z-10">
-          {!isConnected && (
+          {!isConnected && !hasTriedConnect && (
+            <div className="mb-6 flex items-center gap-3 bg-primary/10 border border-primary/20 px-4 py-3 rounded-lg">
+              <Loader2 size={16} className="text-primary animate-spin shrink-0" />
+              <p className="text-sm text-primary font-bold">バックエンドに接続中...</p>
+            </div>
+          )}
+          {!isConnected && hasTriedConnect && (
             <div className="mb-6 flex items-center gap-3 bg-error/10 border border-error/20 px-4 py-3 rounded-lg">
               <AlertCircle size={16} className="text-error shrink-0" />
               <div><p className="text-sm text-error font-bold">バックエンドに接続できません</p><p className="text-xs text-error/70 mt-0.5"><code className="bg-error/10 px-1 rounded">start.bat</code> をダブルクリックして起動してください</p></div>
@@ -716,7 +727,7 @@ export default function App() {
 
           <AnimatePresence mode="popLayout">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {filtered.map((a) => <AssetCard key={a.id} asset={a} onView={handleView} onReveal={handleReveal} onExecute={handleExecute} />)}
+              {filtered.map((a) => <AssetCard key={a.id} asset={a} onView={handleView} onReveal={handleReveal} onExecute={handleExecute} isFavorite={favorites.includes(a.id)} isPinned={pinned.includes(a.id)} onToggleFavorite={toggleFavorite} onTogglePin={togglePin} />)}
             </div>
           </AnimatePresence>
           {filtered.length === 0 && isConnected && (
