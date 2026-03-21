@@ -33,6 +33,7 @@ import {
   Share2,
   Star,
   Pin,
+  Download,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Asset, AssetTag, AssetDomain } from './types';
@@ -455,26 +456,59 @@ const CodeViewer = ({ asset, onClose }: { asset: Asset | null; onClose: () => vo
   );
 };
 
+// === CSVエクスポート ===
+function exportAssetsToCSV(assets: LocalAsset[]) {
+  const header = ['タイトル', 'カテゴリ(タグ)', 'ドメイン', '説明', 'ファイルパス', '言語', '最終更新', 'サイズ(bytes)', 'ディレクトリ'];
+  const escape = (v: string) => `"${(v ?? '').replace(/"/g, '""')}"`;
+  const rows = assets.map(a => {
+    const tags = (a.tags || [(a as any).tag]).join(', ');
+    return [a.title, tags, a.domain, a.description, a.filePath, a.language, a.lastModified, String(a.size), a.isDirectory ? 'Yes' : 'No'].map(escape).join(',');
+  });
+  const bom = '\uFEFF';
+  const csv = bom + [header.map(escape).join(','), ...rows].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `local-finder-export-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 // === PathManager ===
-const PathManager = ({ isOpen, onClose, paths, onAddPath, onRemovePath }: { isOpen: boolean; onClose: () => void; paths: string[]; onAddPath: (p: string) => void; onRemovePath: (p: string) => void }) => {
+const PathManager = ({ isOpen, onClose, paths, onAddPath, onRemovePath, assets }: { isOpen: boolean; onClose: () => void; paths: string[]; onAddPath: (p: string) => void; onRemovePath: (p: string) => void; assets: LocalAsset[] }) => {
   const [newPath, setNewPath] = useState('');
   const [error, setError] = useState('');
+  const [exported, setExported] = useState(false);
   const handleAdd = async () => { if (!newPath.trim()) return; setError(''); const r = await addPath(newPath.trim()); if (r.success) { onAddPath(newPath.trim()); setNewPath(''); } else { setError(r.error || '失敗'); } };
   const handleRemove = async (p: string) => { await removePath(p); onRemovePath(p); };
+  const handleExport = () => { exportAssetsToCSV(assets); setExported(true); setTimeout(() => setExported(false), 2000); };
   if (!isOpen) return null;
   return (
     <AnimatePresence><motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-background/60 backdrop-blur-sm z-[70] flex items-center justify-center" onClick={onClose}>
       <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} onClick={(e) => e.stopPropagation()} className="bg-surface-container-low border border-outline-variant/20 rounded-2xl shadow-2xl w-full max-w-lg mx-4">
-        <div className="flex items-center justify-between p-6 border-b border-outline-variant/10"><div><h2 className="text-lg font-bold text-on-surface font-headline tracking-tight">監視パス管理</h2><p className="text-xs text-slate-500 mt-1">スキャン対象のフォルダを追加・削除</p></div><button onClick={onClose} className="text-slate-500 hover:text-on-surface transition-colors"><X size={20} /></button></div>
-        <div className="p-6">
-          <div className="flex gap-2 mb-4">
-            <input type="text" value={newPath} onChange={(e) => { setNewPath(e.target.value); setError(''); }} onKeyDown={(e) => e.key === 'Enter' && handleAdd()} placeholder="C:\Users\..." className="flex-1 bg-surface-container-lowest px-4 py-2 rounded-lg border border-outline-variant/20 text-sm text-on-surface focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 font-mono" />
-            <button onClick={handleAdd} className="bg-gradient-to-br from-primary to-primary-container px-4 py-2 rounded-lg text-on-primary text-sm font-bold hover:opacity-90 transition-all flex items-center gap-2"><Plus size={16} />追加</button>
+        <div className="flex items-center justify-between p-6 border-b border-outline-variant/10"><div><h2 className="text-lg font-bold text-on-surface font-headline tracking-tight">設定</h2><p className="text-xs text-slate-500 mt-1">監視パス管理・データエクスポート</p></div><button onClick={onClose} className="text-slate-500 hover:text-on-surface transition-colors"><X size={20} /></button></div>
+        <div className="p-6 space-y-6">
+          <div>
+            <h3 className="text-sm font-bold text-on-surface mb-3 flex items-center gap-2"><Folder size={14} className="text-primary" />監視パス</h3>
+            <div className="flex gap-2 mb-4">
+              <input type="text" value={newPath} onChange={(e) => { setNewPath(e.target.value); setError(''); }} onKeyDown={(e) => e.key === 'Enter' && handleAdd()} placeholder="C:\Users\..." className="flex-1 bg-surface-container-lowest px-4 py-2 rounded-lg border border-outline-variant/20 text-sm text-on-surface focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 font-mono" />
+              <button onClick={handleAdd} className="bg-gradient-to-br from-primary to-primary-container px-4 py-2 rounded-lg text-on-primary text-sm font-bold hover:opacity-90 transition-all flex items-center gap-2"><Plus size={16} />追加</button>
+            </div>
+            {error && <div className="flex items-center gap-2 text-error text-xs mb-4 bg-error/10 px-3 py-2 rounded-lg"><AlertCircle size={14} />{error}</div>}
+            <div className="space-y-2 max-h-48 overflow-y-auto">
+              {paths.map((p) => (<div key={p} className="flex items-center justify-between bg-surface-container-lowest px-4 py-3 rounded-lg border border-outline-variant/10 group"><div className="flex items-center gap-3 min-w-0"><Folder size={16} className="text-primary shrink-0" /><span className="text-xs font-mono text-on-surface-variant truncate" title={p}>{p}</span></div><button onClick={() => handleRemove(p)} className="text-slate-600 hover:text-error transition-colors opacity-0 group-hover:opacity-100 shrink-0 ml-2" title="削除"><Trash2 size={14} /></button></div>))}
+              {paths.length === 0 && <p className="text-center text-slate-500 text-sm py-4">監視パスが設定されていません</p>}
+            </div>
           </div>
-          {error && <div className="flex items-center gap-2 text-error text-xs mb-4 bg-error/10 px-3 py-2 rounded-lg"><AlertCircle size={14} />{error}</div>}
-          <div className="space-y-2 max-h-60 overflow-y-auto">
-            {paths.map((p) => (<div key={p} className="flex items-center justify-between bg-surface-container-lowest px-4 py-3 rounded-lg border border-outline-variant/10 group"><div className="flex items-center gap-3 min-w-0"><Folder size={16} className="text-primary shrink-0" /><span className="text-xs font-mono text-on-surface-variant truncate" title={p}>{p}</span></div><button onClick={() => handleRemove(p)} className="text-slate-600 hover:text-error transition-colors opacity-0 group-hover:opacity-100 shrink-0 ml-2" title="削除"><Trash2 size={14} /></button></div>))}
-            {paths.length === 0 && <p className="text-center text-slate-500 text-sm py-8">監視パスが設定されていません</p>}
+          <div className="border-t border-outline-variant/10 pt-5">
+            <h3 className="text-sm font-bold text-on-surface mb-3 flex items-center gap-2"><Download size={14} className="text-primary" />エクスポート</h3>
+            <div className="flex items-center justify-between bg-surface-container-lowest px-4 py-3 rounded-lg border border-outline-variant/10">
+              <div><p className="text-sm text-on-surface font-bold">CSV出力</p><p className="text-[11px] text-slate-500 mt-0.5">全アセット一覧（{assets.length}件）をCSVでダウンロード</p></div>
+              <button onClick={handleExport} className={`px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition-all ${exported ? 'bg-green-500/20 text-green-500' : 'bg-gradient-to-br from-primary to-primary-container text-on-primary hover:opacity-90'}`}>
+                {exported ? <><Check size={14} />完了</> : <><Download size={14} />ダウンロード</>}
+              </button>
+            </div>
           </div>
         </div>
       </motion.div>
@@ -750,7 +784,7 @@ export default function App() {
       </main>
       <CodeViewer asset={selectedAsset} onClose={() => setSelectedAsset(null)} />
       <AnimatePresence>{selectedAsset && <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setSelectedAsset(null)} className="fixed inset-0 bg-black/5 z-50" />}</AnimatePresence>
-      <PathManager isOpen={showPathManager} onClose={() => setShowPathManager(false)} paths={paths} onAddPath={(p) => { setPaths([...paths, p]); handleRefresh(); }} onRemovePath={(p) => { setPaths(paths.filter(pp => pp !== p)); handleRefresh(); }} />
+      <PathManager isOpen={showPathManager} onClose={() => setShowPathManager(false)} paths={paths} onAddPath={(p) => { setPaths([...paths, p]); handleRefresh(); }} onRemovePath={(p) => { setPaths(paths.filter(pp => pp !== p)); handleRefresh(); }} assets={assets} />
       <ScriptSelectModal isOpen={showScriptSelect} onClose={() => setShowScriptSelect(false)} directoryPath={scriptSelectDirPath} onExecute={executeSelectedScript} />
       <ExecutionResult isOpen={showExecResult} onClose={() => setShowExecResult(false)} result={execResult} />
     </div>
