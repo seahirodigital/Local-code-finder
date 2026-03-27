@@ -317,7 +317,7 @@ export function readFileContent(filePath: string, maxSize: number = 1048576): st
         if (fs.existsSync(mp)) return fs.readFileSync(mp, 'utf-8');
       }
       const entries = fs.readdirSync(p);
-      const targetExts = ['.py', '.js', '.ts', '.gs', '.md', '.json', '.jsx', '.tsx'];
+      const targetExts = ['.py', '.js', '.ts', '.gs', '.md', '.json', '.jsx', '.tsx', '.bat', '.sh'];
       for (const entry of entries) {
         if (targetExts.some(ext => entry.endsWith(ext))) {
           return fs.readFileSync(path.join(p, entry), 'utf-8');

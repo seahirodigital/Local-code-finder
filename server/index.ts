@@ -359,7 +359,7 @@ app.get('/api/pdf', (req, res) => {
   fs.createReadStream(pdfPath).pipe(res);
 });
 
-// Python実行
+// スクリプト実行 (Python / Batch)
 app.post('/api/execute', (req, res) => {
   const { path: scriptPath } = req.body;
   if (!scriptPath) {
@@ -367,11 +367,29 @@ app.post('/api/execute', (req, res) => {
   }
 
   const normalizedPath = path.normalize(scriptPath);
-  if (!fs.existsSync(normalizedPath) || !normalizedPath.endsWith('.py')) {
-    return res.status(400).json({ error: '有効なPythonスクリプトではありません' });
+  const isPython = normalizedPath.endsWith('.py');
+  const isBatch = normalizedPath.endsWith('.bat');
+
+  if (!fs.existsSync(normalizedPath) || (!isPython && !isBatch)) {
+    return res.status(400).json({ error: '有効なスクリプト(.py, .bat)ではありません' });
   }
 
-  exec(`python "${normalizedPath}"`, { timeout: 30000, env: { ...process.env, PYTHONIOENCODING: 'utf-8' } }, (error, stdout, stderr) => {
+  if (isBatch) {
+    // バッチファイルは新しいターミナルウィンドウで開く（インタラクティブ入力のため）
+    const dir = path.dirname(normalizedPath);
+    const launchCmd = `start cmd /k "cd /d "${dir}" && "${normalizedPath}""`;
+    exec(launchCmd, (error) => {
+      if (error) {
+        return res.json({ success: false, stdout: '', stderr: error.message, error: error.message });
+      }
+    });
+    // ターミナルウィンドウを開いたら即座にOKを返す
+    return res.json({ success: true, stdout: 'ターミナルウィンドウでバッチファイルを起動しました', stderr: '', error: null, openedTerminal: true });
+  }
+
+  // Pythonはこれまで通りUI内で出力キャプチャ
+  const execOptions = { timeout: 60000, env: { ...process.env, PYTHONIOENCODING: 'utf-8' } };
+  exec(`python "${normalizedPath}"`, execOptions, (error, stdout, stderr) => {
     res.json({
       success: !error,
       stdout: stdout || '',

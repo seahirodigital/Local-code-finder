@@ -388,7 +388,7 @@ const CodeViewer = ({ asset, onClose }: { asset: Asset | null; onClose: () => vo
 
   const getLang = (p: string) => {
     const ext = p.split('.').pop() || '';
-    const m: Record<string, string> = { py: 'python', js: 'javascript', ts: 'typescript', jsx: 'javascript', tsx: 'typescript', gs: 'javascript', md: 'markdown', json: 'json', html: 'html', css: 'css' };
+    const m: Record<string, string> = { py: 'python', js: 'javascript', ts: 'typescript', jsx: 'javascript', tsx: 'typescript', gs: 'javascript', md: 'markdown', json: 'json', html: 'html', css: 'css', bat: 'batch' };
     return m[ext] || asset.language || 'text';
   };
 
@@ -404,6 +404,10 @@ const CodeViewer = ({ asset, onClose }: { asset: Asset | null; onClose: () => vo
         hl = hl.replace(/(".*?")\s*:/g, '<span class="text-secondary">$1</span>:').replace(/:\s*(".*?")/g, ': <span class="text-tertiary">$1</span>').replace(/\b(true|false|null)\b/g, '<span class="text-primary">$1</span>');
       } else if (lang === 'markdown') {
         hl = hl.replace(/^(#+ .*)/g, '<span class="text-primary font-bold">$1</span>').replace(/(\*\*.*?\*\*)/g, '<span class="text-secondary">$1</span>').replace(/(`.*?`)/g, '<span class="text-tertiary">$1</span>');
+      } else if (lang === 'batch') {
+        hl = hl.replace(/(?:\b|^)(echo|set|if|else|goto|for|in|do|call|exit|pause|rem|cls|del|copy|xcopy|move|mkdir|md|rmdir|rd)(?:\b|$)/gi, '<span class="text-secondary">$1</span>')
+               .replace(/(%[a-zA-Z0-9_]+%)/g, '<span class="text-primary">$1</span>')
+               .replace(/(\bREM\b.*|^::.*)/gi, '<span class="text-slate-500">$1</span>');
       }
       return (<div key={i} className="flex gap-4 hover:bg-surface-container-high/30 px-2 rounded"><div className="text-slate-600 text-right select-none pr-4 border-r border-outline-variant/10 w-10 shrink-0 text-xs py-0.5">{i + 1}</div><div className="flex-1 whitespace-pre overflow-x-visible text-on-surface/90 py-0.5" dangerouslySetInnerHTML={{ __html: hl }} /></div>);
     });
@@ -535,26 +539,26 @@ const ExecutionResult = ({ isOpen, onClose, result }: { isOpen: boolean; onClose
 
 // === ScriptSelectModal ===
 const ScriptSelectModal = ({ isOpen, onClose, directoryPath, onExecute }: { isOpen: boolean; onClose: () => void; directoryPath: string | null; onExecute: (p: string) => void }) => {
-  const [pyFiles, setPyFiles] = useState<{name: string, path: string}[]>([]);
+  const [scriptFiles, setScriptFiles] = useState<{name: string, path: string}[]>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (isOpen && directoryPath) {
       setLoading(true);
       fetchDirectoryTree(directoryPath).then(tree => {
-        const findPyFiles = (nodes: any[], result: any[] = []) => {
+        const findScriptFiles = (nodes: any[], result: any[] = []) => {
           for (const node of nodes) {
-            if (node.type === 'file' && node.name.endsWith('.py')) {
+            if (node.type === 'file' && (node.name.endsWith('.py') || node.name.endsWith('.bat'))) {
               result.push(node);
             } else if (node.type === 'directory' && node.children) {
-              findPyFiles(node.children, result);
+              findScriptFiles(node.children, result);
             }
           }
           return result;
         };
-        setPyFiles(findPyFiles(tree));
+        setScriptFiles(findScriptFiles(tree));
         setLoading(false);
-      }).catch(() => { setPyFiles([]); setLoading(false); });
+      }).catch(() => { setScriptFiles([]); setLoading(false); });
     }
   }, [isOpen, directoryPath]);
 
@@ -569,16 +573,16 @@ const ScriptSelectModal = ({ isOpen, onClose, directoryPath, onExecute }: { isOp
             <button onClick={onClose} className="text-slate-500 hover:text-on-surface transition-colors"><X size={20} /></button>
           </div>
           <div className="p-6 overflow-y-auto flex-1">
-            {loading ? <div className="flex items-center justify-center py-8 text-slate-500"><Loader2 size={24} className="animate-spin" /></div> : pyFiles.length > 0 ? (
+            {loading ? <div className="flex items-center justify-center py-8 text-slate-500"><Loader2 size={24} className="animate-spin" /></div> : scriptFiles.length > 0 ? (
               <div className="space-y-2">
-                {pyFiles.map(file => (
+                {scriptFiles.map(file => (
                   <div key={file.path} className="flex items-center justify-between bg-surface-container-lowest px-4 py-3 rounded-lg border border-outline-variant/10 group hover:border-primary/50 transition-colors">
                     <div className="flex items-center gap-3 min-w-0"><FileText size={16} className="text-slate-500 shrink-0" /><div className="flex flex-col min-w-0"><span className="text-sm font-bold text-on-surface truncate">{file.name}</span><span className="text-[10px] font-mono text-slate-500 truncate" title={file.path}>{file.path}</span></div></div>
                     <button onClick={() => { onExecute(file.path); onClose(); }} className="bg-gradient-to-br from-primary to-primary-container px-3 py-1.5 rounded-md text-[11px] font-bold text-on-primary hover:opacity-90 transition-all shadow-[0_4px_12px_rgba(103,217,201,0.2)] flex items-center gap-1 shrink-0 ml-4"><Play size={12} /> 実行</button>
                   </div>
                 ))}
               </div>
-            ) : <div className="text-center py-8 text-slate-500"><p className="text-sm">実行可能なPythonファイルが見つかりません</p></div>}
+            ) : <div className="text-center py-8 text-slate-500"><p className="text-sm">実行可能なPythonまたはBatchファイルが見つかりません</p></div>}
           </div>
         </motion.div>
       </motion.div>
@@ -653,9 +657,12 @@ export default function App() {
   const handleRefresh = async () => { setIsScanning(true); try { await triggerScan(); setAssets(await fetchAssets()); } catch {} setIsScanning(false); };
   const handleReveal = async (a: LocalAsset) => { await revealInExplorer(a.isDirectory ? a.filePath : a.dirPath); };
   const handleExecute = async (a: LocalAsset) => {
-    if (a.filePath.endsWith('.py')) {
+    if (a.filePath.endsWith('.py') || a.filePath.endsWith('.bat')) {
       const r = await executeScript(a.filePath);
-      setExecResult(r); setShowExecResult(true);
+      // .bat はターミナルウィンドウを起動するだけなのでモーダルは不要
+      if (!r.openedTerminal) {
+        setExecResult(r); setShowExecResult(true);
+      }
     } else if (a.isDirectory && a.executable) {
       setScriptSelectDirPath(a.filePath);
       setShowScriptSelect(true);
@@ -666,7 +673,9 @@ export default function App() {
 
   const executeSelectedScript = async (scriptPath: string) => {
     const r = await executeScript(scriptPath);
-    setExecResult(r); setShowExecResult(true);
+    if (!r.openedTerminal) {
+      setExecResult(r); setShowExecResult(true);
+    }
   };
   const handleView = async (a: LocalAsset) => {
     if (a.filePath.toLowerCase().endsWith('.pdf')) {
