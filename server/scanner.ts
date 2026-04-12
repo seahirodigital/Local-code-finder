@@ -173,11 +173,11 @@ function isExecutable(filePath: string, isDirectory: boolean): boolean {
   if (isDirectory) {
     try {
       const entries = fs.readdirSync(filePath);
-      return entries.some(e => e.endsWith('.py') || e.endsWith('.sh') || e.endsWith('.bat'));
+      return entries.some(e => e.endsWith('.py') || e.endsWith('.sh') || e.endsWith('.bat') || e.endsWith('.command'));
     } catch { return false; }
   }
   const ext = path.extname(filePath).toLowerCase();
-  return ['.py', '.sh', '.bat', '.ps1'].includes(ext);
+  return ['.py', '.sh', '.bat', '.ps1', '.command'].includes(ext);
 }
 
 // === 説明文生成 ===
@@ -317,7 +317,7 @@ export function readFileContent(filePath: string, maxSize: number = 1048576): st
         if (fs.existsSync(mp)) return fs.readFileSync(mp, 'utf-8');
       }
       const entries = fs.readdirSync(p);
-      const targetExts = ['.py', '.js', '.ts', '.gs', '.md', '.json', '.jsx', '.tsx', '.bat', '.sh'];
+      const targetExts = ['.py', '.js', '.ts', '.gs', '.md', '.json', '.jsx', '.tsx', '.bat', '.sh', '.command'];
       for (const entry of entries) {
         if (targetExts.some(ext => entry.endsWith(ext))) {
           return fs.readFileSync(path.join(p, entry), 'utf-8');

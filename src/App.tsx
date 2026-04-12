@@ -548,7 +548,7 @@ const ScriptSelectModal = ({ isOpen, onClose, directoryPath, onExecute }: { isOp
       fetchDirectoryTree(directoryPath).then(tree => {
         const findScriptFiles = (nodes: any[], result: any[] = []) => {
           for (const node of nodes) {
-            if (node.type === 'file' && (node.name.endsWith('.py') || node.name.endsWith('.bat'))) {
+            if (node.type === 'file' && (node.name.endsWith('.py') || node.name.endsWith('.bat') || node.name.endsWith('.command') || node.name.endsWith('.sh'))) {
               result.push(node);
             } else if (node.type === 'directory' && node.children) {
               findScriptFiles(node.children, result);
@@ -582,7 +582,7 @@ const ScriptSelectModal = ({ isOpen, onClose, directoryPath, onExecute }: { isOp
                   </div>
                 ))}
               </div>
-            ) : <div className="text-center py-8 text-slate-500"><p className="text-sm">実行可能なPythonまたはBatchファイルが見つかりません</p></div>}
+            ) : <div className="text-center py-8 text-slate-500"><p className="text-sm">実行可能なPythonまたはBatch/コマンドファイルが見つかりません</p></div>}
           </div>
         </motion.div>
       </motion.div>
@@ -657,7 +657,7 @@ export default function App() {
   const handleRefresh = async () => { setIsScanning(true); try { await triggerScan(); setAssets(await fetchAssets()); } catch {} setIsScanning(false); };
   const handleReveal = async (a: LocalAsset) => { await revealInExplorer(a.isDirectory ? a.filePath : a.dirPath); };
   const handleExecute = async (a: LocalAsset) => {
-    if (a.filePath.endsWith('.py') || a.filePath.endsWith('.bat')) {
+    if (a.filePath.endsWith('.py') || a.filePath.endsWith('.bat') || a.filePath.endsWith('.command') || a.filePath.endsWith('.sh')) {
       const r = await executeScript(a.filePath);
       // .bat はターミナルウィンドウを起動するだけなのでモーダルは不要
       if (!r.openedTerminal) {

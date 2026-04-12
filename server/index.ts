@@ -369,22 +369,32 @@ app.post('/api/execute', (req, res) => {
   const normalizedPath = path.normalize(scriptPath);
   const isPython = normalizedPath.endsWith('.py');
   const isBatch = normalizedPath.endsWith('.bat');
+  const isMacCommand = normalizedPath.endsWith('.command') || normalizedPath.endsWith('.sh') || normalizedPath.endsWith('.ps1');
 
-  if (!fs.existsSync(normalizedPath) || (!isPython && !isBatch)) {
-    return res.status(400).json({ error: '有効なスクリプト(.py, .bat)ではありません' });
+  if (!fs.existsSync(normalizedPath) || (!isPython && !isBatch && !isMacCommand)) {
+    return res.status(400).json({ error: '有効なスクリプト(.py, .bat, .command, .sh)ではありません' });
   }
 
-  if (isBatch) {
-    // バッチファイルは新しいターミナルウィンドウで開く（インタラクティブ入力のため）
+  if (isBatch || isMacCommand) {
     const dir = path.dirname(normalizedPath);
-    const launchCmd = `start cmd /k "cd /d "${dir}" && "${normalizedPath}""`;
+    let launchCmd = '';
+    
+    if (isBatch) {
+      launchCmd = `start cmd /k "cd /d "${dir}" && "${normalizedPath}""`;
+    } else if (process.platform === 'darwin') {
+      // Macの場合はTerminalアプリで開く
+      launchCmd = `osascript -e 'tell application "Terminal" to do script "cd \\"${dir}\\" && \\"${normalizedPath}\\""' -e 'tell application "Terminal" to activate'`;
+    } else {
+      launchCmd = `bash "${normalizedPath}"`;
+    }
+
     exec(launchCmd, (error) => {
       if (error) {
-        return res.json({ success: false, stdout: '', stderr: error.message, error: error.message });
+        console.error('Launch Error:', error.message);
       }
     });
-    // ターミナルウィンドウを開いたら即座にOKを返す
-    return res.json({ success: true, stdout: 'ターミナルウィンドウでバッチファイルを起動しました', stderr: '', error: null, openedTerminal: true });
+
+    return res.json({ success: true, stdout: 'ターミナルでスクリプトを起動しました', stderr: '', error: null, openedTerminal: true });
   }
 
   // Pythonはこれまで通りUI内で出力キャプチャ

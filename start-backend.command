@@ -10,9 +10,9 @@ echo "========================================"
 echo ""
 
 # バックエンドの起動 (start-backend.bat と同等の処理)
-if [ -f "./node_modules/tsx/dist/cli.mjs" ]; then
-    node "./node_modules/tsx/dist/cli.mjs" watch server/index.ts
+if [ -f "./node_modules/.bin/tsx" ]; then
+    "./node_modules/.bin/tsx" watch server/index.ts
 else
-    echo "[ERROR] tsx not found. Run npm install first."
-    sleep 5
+    # fallback if bin is missing
+    npx tsx watch server/index.ts
 fi
