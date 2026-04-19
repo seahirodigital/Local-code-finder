@@ -60,7 +60,7 @@ npm run dev      # フロントエンド (port 3000)
 ## ディレクトリ構成
 
 ```
-C:\Users\HCY\OneDrive\開発\Local-code-finder\
+%USERPROFILE%\OneDrive\開発\Local-code-finder\
 │
 ├── server/                     # バックエンド（Express + WebSocket）
 │   ├── index.ts                #   APIサーバー本体（ルーティング・WS・監視起動）

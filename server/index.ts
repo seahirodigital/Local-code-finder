@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { createServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
@@ -8,11 +9,18 @@ import { exec } from 'child_process';
 import { scanAll, readFileContent, getDirectoryTree, getPdfPath, ScannedAsset } from './scanner.js';
 import { FileWatcher } from './watcher.js';
 
-const CONFIG_PATH = path.join(process.cwd(), 'pan-config.json');
+const CONFIG_PATH = process.env.PAN_CONFIG_PATH
+  ? path.resolve(process.env.PAN_CONFIG_PATH)
+  : path.join(process.cwd(), 'pan-config.json');
 const PORT = 3001;
+const currentHome = os.homedir();
+const currentWindowsHome = currentHome.replace(/\\/g, '/');
+const currentWindowsOneDrive = path.join(currentHome, 'OneDrive').replace(/\\/g, '/');
+const currentMacHome = currentHome.replace(/\\/g, '/');
+const currentMacOneDrive = path.join(currentHome, 'Library', 'CloudStorage', 'OneDrive-個人用').replace(/\\/g, '/');
 
 // OSごとのパスの違いを吸収する関数（Windows <-> Mac）
-function getCrossPlatformPath(p: string): string {
+function legacyGetCrossPlatformPath(p: string): string {
   let normalized = p.replace(/\\/g, '/');
   const isMac = process.platform === 'darwin';
 
@@ -35,7 +43,7 @@ function getCrossPlatformPath(p: string): string {
 }
 
 // 設定読み込み
-function loadConfig() {
+function legacyLoadConfig() {
   try {
     const config = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
     if (config.watchPaths && Array.isArray(config.watchPaths)) {
@@ -60,6 +68,114 @@ function saveConfig(config: any) {
 }
 
 // アセットキャッシュ
+function dedupePaths(paths: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const value of paths) {
+    const normalized = path.normalize(value);
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(normalized);
+  }
+
+  return result;
+}
+
+function migratePreferenceIds(ids: string[]): { values: string[]; changed: boolean } {
+  const seen = new Set<string>();
+  const values: string[] = [];
+  let changed = false;
+
+  for (const id of ids) {
+    try {
+      const decodedPath = Buffer.from(id, 'base64url').toString();
+      const migratedPath = path.normalize(getCrossPlatformPath(decodedPath));
+      const migratedId = Buffer.from(migratedPath).toString('base64url');
+      if (migratedId !== id) changed = true;
+      if (seen.has(migratedId)) continue;
+      seen.add(migratedId);
+      values.push(migratedId);
+    } catch {
+      if (seen.has(id)) continue;
+      seen.add(id);
+      values.push(id);
+    }
+  }
+
+  return { values, changed };
+}
+
+function getCrossPlatformPath(p: string): string {
+  let normalized = p.replace(/\\/g, '/');
+  const isMac = process.platform === 'darwin';
+
+  if (isMac) {
+    if (normalized.match(/^[A-Za-z]:\/Users\/[^/]+\/OneDrive/i)) {
+      normalized = normalized.replace(/^[A-Za-z]:\/Users\/[^/]+\/OneDrive/i, currentMacOneDrive);
+    } else if (normalized.match(/^[A-Za-z]:\/Users\/[^/]+/i)) {
+      normalized = normalized.replace(/^[A-Za-z]:\/Users\/[^/]+/i, currentMacHome);
+    } else if (normalized.match(/^\/Users\/[^/]+\/Library\/CloudStorage\/OneDrive-[^/]+/i)) {
+      normalized = normalized.replace(/^\/Users\/[^/]+\/Library\/CloudStorage\/OneDrive-[^/]+/i, currentMacOneDrive);
+    } else if (normalized.match(/^\/Users\/[^/]+/i)) {
+      normalized = normalized.replace(/^\/Users\/[^/]+/i, currentMacHome);
+    }
+  } else {
+    if (normalized.match(/^\/Users\/[^/]+\/Library\/CloudStorage\/OneDrive-[^/]+/i)) {
+      normalized = normalized.replace(/^\/Users\/[^/]+\/Library\/CloudStorage\/OneDrive-[^/]+/i, currentWindowsOneDrive);
+    } else if (normalized.match(/^\/Users\/[^/]+/i)) {
+      normalized = normalized.replace(/^\/Users\/[^/]+/i, currentWindowsHome);
+    } else if (normalized.match(/^[A-Za-z]:\/Users\/[^/]+\/OneDrive/i)) {
+      normalized = normalized.replace(/^[A-Za-z]:\/Users\/[^/]+\/OneDrive/i, currentWindowsOneDrive);
+    } else if (normalized.match(/^[A-Za-z]:\/Users\/[^/]+/i)) {
+      normalized = normalized.replace(/^[A-Za-z]:\/Users\/[^/]+/i, currentWindowsHome);
+    }
+  }
+
+  return path.normalize(normalized);
+}
+
+function loadConfig() {
+  try {
+    const config = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
+    let changed = false;
+
+    if (config.watchPaths && Array.isArray(config.watchPaths)) {
+      const migratedWatchPaths = dedupePaths(config.watchPaths.map((p: string) => getCrossPlatformPath(p)));
+      changed = changed || JSON.stringify(config.watchPaths) !== JSON.stringify(migratedWatchPaths);
+      config.watchPaths = migratedWatchPaths;
+    }
+
+    if (config.favorites && Array.isArray(config.favorites)) {
+      const migratedFavorites = migratePreferenceIds(config.favorites);
+      changed = changed || migratedFavorites.changed || JSON.stringify(config.favorites) !== JSON.stringify(migratedFavorites.values);
+      config.favorites = migratedFavorites.values;
+    }
+
+    if (config.pinned && Array.isArray(config.pinned)) {
+      const migratedPinned = migratePreferenceIds(config.pinned);
+      changed = changed || migratedPinned.changed || JSON.stringify(config.pinned) !== JSON.stringify(migratedPinned.values);
+      config.pinned = migratedPinned.values;
+    }
+
+    if (changed) {
+      saveConfig(config);
+    }
+
+    return config;
+  } catch {
+    const defaultConfig = {
+      watchPaths: [],
+      ignoredPatterns: ['node_modules', '.git', '__pycache__', '.venv', 'dist', 'build', '.next', '.cache', 'coverage'],
+      maxDepth: 5,
+      maxFileSize: 1048576,
+    };
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify(defaultConfig, null, 2), 'utf-8');
+    return defaultConfig;
+  }
+}
+
 let cachedAssets: ScannedAsset[] = [];
 let lastScanTime = 0;
 

@@ -1,5 +1,11 @@
 # Local Code Finder
 
+## Use Cases & Search Tags
+- 「ローカルのコードファイルを検索するツール」
+- 「Win/Macの両方で動く開発ツール」
+- 「OS跨ぎエラーを回避する設計のローカルアプリ」
+- 「pan-config.jsonで設定を管理するコード検索」
+
 本プロジェクトは、WindowsとMacでのOS跨ぎのエラーを防ぐため、以下の運用仕様となっています。
 
 ## 実行環境の仕様 (Windows / Mac)

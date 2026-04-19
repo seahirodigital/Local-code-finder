@@ -1,4 +1,4 @@
-import chokidar from 'chokidar';
+import chokidar, { type FSWatcher } from 'chokidar';
 import path from 'path';
 
 export interface WatchEvent {
@@ -10,7 +10,7 @@ export interface WatchEvent {
 type EventCallback = (event: WatchEvent) => void;
 
 export class FileWatcher {
-  private watchers: Map<string, chokidar.FSWatcher> = new Map();
+  private watchers: Map<string, FSWatcher> = new Map();
   private callbacks: EventCallback[] = [];
   private ignoredPatterns: string[];
 
@@ -36,7 +36,7 @@ export class FileWatcher {
       return; // 既に監視中
     }
 
-    const ignored = this.ignoredPatterns.map(p => `**/${p}/**`);
+    const ignored: Array<string | RegExp> = this.ignoredPatterns.map(p => `**/${p}/**`);
     ignored.push(/(^|[\/\\])\../); // dotファイルを無視
 
     const watcher = chokidar.watch(normalizedPath, {
