@@ -170,14 +170,15 @@ function inferTagForFile(filePath: string): { tags: AssetTag[]; language: string
 
 // === 実行可能判定 ===
 function isExecutable(filePath: string, isDirectory: boolean): boolean {
+  const executableExts = new Set(['.py', '.sh', '.bat', '.ps1', '.command', '.exe']);
   if (isDirectory) {
     try {
       const entries = fs.readdirSync(filePath);
-      return entries.some(e => e.endsWith('.py') || e.endsWith('.sh') || e.endsWith('.bat') || e.endsWith('.command'));
+      return entries.some(e => executableExts.has(path.extname(e).toLowerCase()));
     } catch { return false; }
   }
   const ext = path.extname(filePath).toLowerCase();
-  return ['.py', '.sh', '.bat', '.ps1', '.command'].includes(ext);
+  return executableExts.has(ext);
 }
 
 // === 説明文生成 ===

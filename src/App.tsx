@@ -46,6 +46,68 @@ export interface LocalAsset extends Omit<Asset, 'tag' | 'contentKeywords'> {
 const API_BASE = 'http://localhost:3001';
 const WS_URL = 'ws://localhost:3001';
 
+type SortOrder = 'manual' | 'date-desc' | 'date-asc' | 'alpha-asc' | 'alpha-desc';
+type Preferences = { favorites: string[]; pinned: string[]; assetOrder: string[] };
+
+function sameStringArray(a: string[], b: string[]) {
+  return a.length === b.length && a.every((value, index) => value === b[index]);
+}
+
+function normalizeAssetOrder(order: string[], assets: LocalAsset[]) {
+  const assetIds = new Set(assets.map(asset => asset.id));
+  const seen = new Set<string>();
+  const next: string[] = [];
+
+  for (const id of order) {
+    if (!assetIds.has(id) || seen.has(id)) continue;
+    seen.add(id);
+    next.push(id);
+  }
+
+  for (const asset of assets) {
+    if (seen.has(asset.id)) continue;
+    seen.add(asset.id);
+    next.push(asset.id);
+  }
+
+  return next;
+}
+
+function moveAssetInOrder(order: string[], draggedId: string, targetId: string, insertAfter: boolean) {
+  if (draggedId === targetId) return order;
+
+  const fromIndex = order.indexOf(draggedId);
+  const targetIndex = order.indexOf(targetId);
+  if (fromIndex === -1 || targetIndex === -1) return order;
+
+  const next = [...order];
+  next.splice(fromIndex, 1);
+  const targetIndexAfterRemoval = next.indexOf(targetId);
+  next.splice(insertAfter ? targetIndexAfterRemoval + 1 : targetIndexAfterRemoval, 0, draggedId);
+  return next;
+}
+
+function sortAssetsForView(items: LocalAsset[], sortOrder: SortOrder, assetOrder: string[]) {
+  const orderIndex = new Map(assetOrder.map((id, index) => [id, index]));
+  return [...items].sort((a, b) => {
+    if (sortOrder === 'manual') {
+      const aIndex = orderIndex.get(a.id) ?? Number.MAX_SAFE_INTEGER;
+      const bIndex = orderIndex.get(b.id) ?? Number.MAX_SAFE_INTEGER;
+      if (aIndex !== bIndex) return aIndex - bIndex;
+      return a.title.localeCompare(b.title);
+    }
+    if (sortOrder === 'alpha-asc') return a.title.localeCompare(b.title);
+    if (sortOrder === 'alpha-desc') return b.title.localeCompare(a.title);
+    if (sortOrder === 'date-desc') return a.lastModified === b.lastModified ? 0 : -1;
+    if (sortOrder === 'date-asc') return a.lastModified === b.lastModified ? 0 : 1;
+    return 0;
+  });
+}
+
+function isInteractiveDragTarget(target: EventTarget | null) {
+  return target instanceof HTMLElement && Boolean(target.closest('button, a, input, textarea, select, [role="button"]'));
+}
+
 // === API ===
 async function fetchAssets(): Promise<Asset[]> {
   const res = await fetch(`${API_BASE}/api/assets`);
@@ -88,12 +150,12 @@ async function fetchDirectoryTree(dirPath: string): Promise<any[]> {
   const res = await fetch(`${API_BASE}/api/tree?path=${encodeURIComponent(dirPath)}`);
   return (await res.json()).tree;
 }
-async function fetchPreferences(): Promise<{ favorites: string[]; pinned: string[] }> {
+async function fetchPreferences(): Promise<Preferences> {
   const res = await fetch(`${API_BASE}/api/preferences`);
   return res.json();
 }
-async function savePreferences(favorites: string[], pinned: string[]) {
-  await fetch(`${API_BASE}/api/preferences`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ favorites, pinned }) });
+async function savePreferences(favorites: string[], pinned: string[], assetOrder: string[]) {
+  await fetch(`${API_BASE}/api/preferences`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ favorites, pinned, assetOrder }) });
 }
 
 // === WebSocket Hook ===
@@ -250,8 +312,8 @@ function getDomainColor(d: AssetDomain) {
 }
 
 // === AssetCard (ダブルクリックでViewer) ===
-const AssetCard = ({ asset, onView, onReveal, onExecute, isFavorite, isPinned, onToggleFavorite, onTogglePin }: {
-  asset: LocalAsset; onView: (a: LocalAsset) => void; onReveal: (a: LocalAsset) => void; onExecute: (a: LocalAsset) => void; isFavorite: boolean; isPinned: boolean; onToggleFavorite: (id: string) => void; onTogglePin: (id: string) => void; key?: React.Key;
+const AssetCard = ({ asset, onView, onReveal, onExecute, isFavorite, isPinned, isDragging, onToggleFavorite, onTogglePin, onDragStart, onDragOverAsset, onDrop, onDragEnd }: {
+  asset: LocalAsset; onView: (a: LocalAsset) => void; onReveal: (a: LocalAsset) => void; onExecute: (a: LocalAsset) => void; isFavorite: boolean; isPinned: boolean; isDragging: boolean; onToggleFavorite: (id: string) => void; onTogglePin: (id: string) => void; onDragStart: (id: string) => void; onDragOverAsset: (targetId: string, insertAfter: boolean) => void; onDrop: () => void; onDragEnd: () => void; key?: React.Key;
 }) => (
   <motion.div
     layout
@@ -259,8 +321,39 @@ const AssetCard = ({ asset, onView, onReveal, onExecute, isFavorite, isPinned, o
     animate={{ opacity: 1, y: 0 }}
     exit={{ opacity: 0, scale: 0.95 }}
     transition={{ duration: 0.2 }}
+    draggable
     onDoubleClick={() => onView(asset)}
-    className={`group bg-surface-container-low hover:bg-surface-container border rounded-xl p-4 transition-all duration-300 flex flex-col h-full shadow-[0_4px_20px_rgba(6,14,32,0.08)] hover:shadow-[0_8px_30px_rgba(6,14,32,0.15)] cursor-pointer select-none ${isPinned ? 'border-primary/40 ring-1 ring-primary/20' : 'border-outline-variant/10 hover:border-primary/30'}`}
+    onDragStart={(e) => {
+      if (isInteractiveDragTarget(e.target)) {
+        e.preventDefault();
+        return;
+      }
+      e.stopPropagation();
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', asset.id);
+      onDragStart(asset.id);
+    }}
+    onDragEnter={(e) => {
+      e.preventDefault();
+    }}
+    onDragOver={(e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      const rect = e.currentTarget.getBoundingClientRect();
+      const xRatio = (e.clientX - rect.left) / rect.width;
+      const yRatio = (e.clientY - rect.top) / rect.height;
+      const insertAfter = Math.abs(yRatio - 0.5) < 0.35 ? xRatio > 0.5 : yRatio > 0.5;
+      onDragOverAsset(asset.id, insertAfter);
+    }}
+    onDrop={(e) => {
+      e.preventDefault();
+      onDrop();
+    }}
+    onDragEnd={(e) => {
+      e.stopPropagation();
+      onDragEnd();
+    }}
+    className={`group bg-surface-container-low hover:bg-surface-container border rounded-xl p-4 transition-all duration-300 flex flex-col h-full shadow-[0_4px_20px_rgba(6,14,32,0.08)] hover:shadow-[0_8px_30px_rgba(6,14,32,0.15)] cursor-grab active:cursor-grabbing select-none ${isDragging ? 'opacity-60 scale-[0.98]' : ''} ${isPinned ? 'border-primary/40 ring-1 ring-primary/20' : 'border-outline-variant/10 hover:border-primary/30'}`}
   >
     <div className="flex justify-between items-start mb-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -538,6 +631,24 @@ const ExecutionResult = ({ isOpen, onClose, result }: { isOpen: boolean; onClose
 };
 
 // === ScriptSelectModal ===
+function getExecutableFilePriority(fileName: string) {
+  const lowerName = fileName.toLowerCase();
+  if (lowerName.endsWith('.exe')) return 0;
+  if (lowerName.endsWith('.bat')) return 1;
+  if (lowerName.endsWith('.command')) return 2;
+  if (lowerName.endsWith('.py')) return 3;
+  if (lowerName.endsWith('.sh')) return 4;
+  return 99;
+}
+
+function sortExecutableFiles(files: { name: string, path: string }[]) {
+  return [...files].sort((a, b) => {
+    const priorityDiff = getExecutableFilePriority(a.name) - getExecutableFilePriority(b.name);
+    if (priorityDiff !== 0) return priorityDiff;
+    return a.name.localeCompare(b.name, 'ja') || a.path.localeCompare(b.path, 'ja');
+  });
+}
+
 const ScriptSelectModal = ({ isOpen, onClose, directoryPath, onExecute }: { isOpen: boolean; onClose: () => void; directoryPath: string | null; onExecute: (p: string) => void }) => {
   const [scriptFiles, setScriptFiles] = useState<{name: string, path: string}[]>([]);
   const [loading, setLoading] = useState(false);
@@ -548,7 +659,8 @@ const ScriptSelectModal = ({ isOpen, onClose, directoryPath, onExecute }: { isOp
       fetchDirectoryTree(directoryPath).then(tree => {
         const findScriptFiles = (nodes: any[], result: any[] = []) => {
           for (const node of nodes) {
-            if (node.type === 'file' && (node.name.endsWith('.py') || node.name.endsWith('.bat') || node.name.endsWith('.command') || node.name.endsWith('.sh'))) {
+            const fileName = node.name.toLowerCase();
+            if (node.type === 'file' && (fileName.endsWith('.py') || fileName.endsWith('.bat') || fileName.endsWith('.command') || fileName.endsWith('.sh') || fileName.endsWith('.exe'))) {
               result.push(node);
             } else if (node.type === 'directory' && node.children) {
               findScriptFiles(node.children, result);
@@ -556,7 +668,7 @@ const ScriptSelectModal = ({ isOpen, onClose, directoryPath, onExecute }: { isOp
           }
           return result;
         };
-        setScriptFiles(findScriptFiles(tree));
+        setScriptFiles(sortExecutableFiles(findScriptFiles(tree)));
         setLoading(false);
       }).catch(() => { setScriptFiles([]); setLoading(false); });
     }
@@ -582,7 +694,7 @@ const ScriptSelectModal = ({ isOpen, onClose, directoryPath, onExecute }: { isOp
                   </div>
                 ))}
               </div>
-            ) : <div className="text-center py-8 text-slate-500"><p className="text-sm">実行可能なPythonまたはBatch/コマンドファイルが見つかりません</p></div>}
+            ) : <div className="text-center py-8 text-slate-500"><p className="text-sm">実行可能なPython/Batch/コマンド/exeファイルが見つかりません</p></div>}
           </div>
         </motion.div>
       </motion.div>
@@ -597,7 +709,7 @@ export default function App() {
   const [sidebarFilters, setSidebarFilters] = useState<string[]>([]); // 複数選択化
   const [tabFilter, setTabFilter] = useState('all');       // タグフィルタ
   const [searchQuery, setSearchQuery] = useState('');
-  const [sortOrder, setSortOrder] = useState<'date-desc'|'date-asc'|'alpha-asc'|'alpha-desc'>('date-desc');
+  const [sortOrder, setSortOrder] = useState<SortOrder>('manual');
   const [selectedAsset, setSelectedAsset] = useState<LocalAsset | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [hasTriedConnect, setHasTriedConnect] = useState(false);
@@ -610,14 +722,19 @@ export default function App() {
   const [isDark, setIsDark] = useState(false); // Light mode default
   const [favorites, setFavorites] = useState<string[]>([]);
   const [pinned, setPinned] = useState<string[]>([]);
+  const [assetOrder, setAssetOrder] = useState<string[]>([]);
+  const [preferencesLoaded, setPreferencesLoaded] = useState(false);
+  const [draggedAssetId, setDraggedAssetId] = useState<string | null>(null);
   const [showFavorites, setShowFavorites] = useState(false);
+  const pendingAssetOrderRef = useRef<string[] | null>(null);
+  const draggedAssetIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     (async () => {
       try {
         const [a, p, prefs] = await Promise.all([fetchAssets(), fetchPaths(), fetchPreferences()]);
         setAssets(a); setPaths(p); setIsConnected(true);
-        setFavorites(prefs.favorites || []); setPinned(prefs.pinned || []);
+        setFavorites(prefs.favorites || []); setPinned(prefs.pinned || []); setAssetOrder(prefs.assetOrder || []); setPreferencesLoaded(true);
       } catch { setIsConnected(false); }
       setHasTriedConnect(true);
     })();
@@ -634,17 +751,27 @@ export default function App() {
     document.documentElement.classList.toggle('light', !isDark);
   }, [isDark]);
 
+  useEffect(() => {
+    if (!preferencesLoaded || assets.length === 0) return;
+    setAssetOrder(prev => {
+      const next = normalizeAssetOrder(prev, assets);
+      if (sameStringArray(prev, next)) return prev;
+      savePreferences(favorites, pinned, next);
+      return next;
+    });
+  }, [assets, preferencesLoaded]);
+
   const toggleFavorite = (id: string) => {
     setFavorites(prev => {
       const next = prev.includes(id) ? prev.filter(f => f !== id) : [...prev, id];
-      savePreferences(next, pinned);
+      savePreferences(next, pinned, normalizeAssetOrder(assetOrder, assets));
       return next;
     });
   };
   const togglePin = (id: string) => {
     setPinned(prev => {
       const next = prev.includes(id) ? prev.filter(f => f !== id) : [...prev, id];
-      savePreferences(favorites, next);
+      savePreferences(favorites, next, normalizeAssetOrder(assetOrder, assets));
       return next;
     });
   };
@@ -657,7 +784,8 @@ export default function App() {
   const handleRefresh = async () => { setIsScanning(true); try { await triggerScan(); setAssets(await fetchAssets()); } catch {} setIsScanning(false); };
   const handleReveal = async (a: LocalAsset) => { await revealInExplorer(a.isDirectory ? a.filePath : a.dirPath); };
   const handleExecute = async (a: LocalAsset) => {
-    if (a.filePath.endsWith('.py') || a.filePath.endsWith('.bat') || a.filePath.endsWith('.command') || a.filePath.endsWith('.sh')) {
+    const filePath = a.filePath.toLowerCase();
+    if (filePath.endsWith('.py') || filePath.endsWith('.bat') || filePath.endsWith('.command') || filePath.endsWith('.sh') || filePath.endsWith('.exe')) {
       const r = await executeScript(a.filePath);
       // .bat はターミナルウィンドウを起動するだけなのでモーダルは不要
       if (!r.openedTerminal) {
@@ -696,6 +824,8 @@ export default function App() {
     setTabFilter(tabId);
   };
 
+  const normalizedAssetOrder = normalizeAssetOrder(assetOrder, assets);
+
 // フィルタ
   let filtered = assets.filter((a) => {
     if (showFavorites && !favorites.includes(a.id)) return false;
@@ -709,17 +839,39 @@ export default function App() {
     return true;
   });
 
-  // ソート（ピン留めは常に上位）
-  filtered = filtered.sort((a, b) => {
-    const aPinned = pinned.includes(a.id) ? 1 : 0;
-    const bPinned = pinned.includes(b.id) ? 1 : 0;
-    if (aPinned !== bPinned) return bPinned - aPinned;
-    if (sortOrder === 'alpha-asc') return a.title.localeCompare(b.title);
-    if (sortOrder === 'alpha-desc') return b.title.localeCompare(a.title);
-    if (sortOrder === 'date-desc') return a.lastModified === b.lastModified ? 0 : -1;
-    if (sortOrder === 'date-asc') return a.lastModified === b.lastModified ? 0 : 1;
-    return 0;
-  });
+  filtered = sortAssetsForView(filtered, sortOrder, normalizedAssetOrder);
+
+  const persistPendingAssetOrder = () => {
+    const next = pendingAssetOrderRef.current;
+    pendingAssetOrderRef.current = null;
+    draggedAssetIdRef.current = null;
+    setDraggedAssetId(null);
+    if (next) savePreferences(favorites, pinned, next);
+  };
+
+  const handleCardDragStart = (id: string) => {
+    draggedAssetIdRef.current = id;
+    setDraggedAssetId(id);
+    if (sortOrder !== 'manual') {
+      const next = sortAssetsForView(assets, sortOrder, normalizedAssetOrder).map(asset => asset.id);
+      pendingAssetOrderRef.current = next;
+      setAssetOrder(next);
+      setSortOrder('manual');
+    }
+  };
+
+  const handleCardDragOverAsset = (targetId: string, insertAfter: boolean) => {
+    const activeDraggedId = draggedAssetIdRef.current ?? draggedAssetId;
+    if (!activeDraggedId || activeDraggedId === targetId) return;
+    setSortOrder('manual');
+    setAssetOrder(prev => {
+      const base = normalizeAssetOrder(prev, assets);
+      const next = moveAssetInOrder(base, activeDraggedId, targetId, insertAfter);
+      if (sameStringArray(base, next)) return prev;
+      pendingAssetOrderRef.current = next;
+      return next;
+    });
+  };
 
   // タブカウント（サイドバーフィルタ適用後）
   const inSidebar = assets.filter(a => sidebarFilters.length === 0 || sidebarFilters.includes(a.domain));
@@ -757,9 +909,10 @@ export default function App() {
             <div className="flex gap-2">
               <select 
                 value={sortOrder} 
-                onChange={e => setSortOrder(e.target.value as any)}
+                onChange={e => setSortOrder(e.target.value as SortOrder)}
                 className="bg-surface-container border border-outline-variant/20 px-3 py-1.5 rounded-md text-xs font-bold text-on-surface focus:outline-none"
               >
+                <option value="manual">手動順</option>
                 <option value="date-desc">日時：降順</option>
                 <option value="date-asc">日時：昇順</option>
                 <option value="alpha-asc">名前：A-Z</option>
@@ -769,8 +922,29 @@ export default function App() {
           </div>
 
           <AnimatePresence mode="popLayout">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {filtered.map((a) => <AssetCard key={a.id} asset={a} onView={handleView} onReveal={handleReveal} onExecute={handleExecute} isFavorite={favorites.includes(a.id)} isPinned={pinned.includes(a.id)} onToggleFavorite={toggleFavorite} onTogglePin={togglePin} />)}
+            <div
+              className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
+              onDragOver={(e) => { if (draggedAssetId) e.preventDefault(); }}
+              onDrop={(e) => { if (draggedAssetId) { e.preventDefault(); persistPendingAssetOrder(); } }}
+            >
+              {filtered.map((a) => (
+                <AssetCard
+                  key={a.id}
+                  asset={a}
+                  onView={handleView}
+                  onReveal={handleReveal}
+                  onExecute={handleExecute}
+                  isFavorite={favorites.includes(a.id)}
+                  isPinned={pinned.includes(a.id)}
+                  isDragging={draggedAssetId === a.id}
+                  onToggleFavorite={toggleFavorite}
+                  onTogglePin={togglePin}
+                  onDragStart={handleCardDragStart}
+                  onDragOverAsset={handleCardDragOverAsset}
+                  onDrop={persistPendingAssetOrder}
+                  onDragEnd={persistPendingAssetOrder}
+                />
+              ))}
             </div>
           </AnimatePresence>
           {filtered.length === 0 && isConnected && (

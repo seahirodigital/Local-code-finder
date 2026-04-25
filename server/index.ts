@@ -159,6 +159,12 @@ function loadConfig() {
       config.pinned = migratedPinned.values;
     }
 
+    if (config.assetOrder && Array.isArray(config.assetOrder)) {
+      const migratedAssetOrder = migratePreferenceIds(config.assetOrder);
+      changed = changed || migratedAssetOrder.changed || JSON.stringify(config.assetOrder) !== JSON.stringify(migratedAssetOrder.values);
+      config.assetOrder = migratedAssetOrder.values;
+    }
+
     if (changed) {
       saveConfig(config);
     }
@@ -170,6 +176,9 @@ function loadConfig() {
       ignoredPatterns: ['node_modules', '.git', '__pycache__', '.venv', 'dist', 'build', '.next', '.cache', 'coverage'],
       maxDepth: 5,
       maxFileSize: 1048576,
+      favorites: [],
+      pinned: [],
+      assetOrder: [],
     };
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(defaultConfig, null, 2), 'utf-8');
     return defaultConfig;
@@ -483,12 +492,31 @@ app.post('/api/execute', (req, res) => {
   }
 
   const normalizedPath = path.normalize(scriptPath);
-  const isPython = normalizedPath.endsWith('.py');
-  const isBatch = normalizedPath.endsWith('.bat');
-  const isMacCommand = normalizedPath.endsWith('.command') || normalizedPath.endsWith('.sh') || normalizedPath.endsWith('.ps1');
+  const lowerPath = normalizedPath.toLowerCase();
+  const isPython = lowerPath.endsWith('.py');
+  const isBatch = lowerPath.endsWith('.bat');
+  const isExe = lowerPath.endsWith('.exe');
+  const isMacCommand = lowerPath.endsWith('.command') || lowerPath.endsWith('.sh') || lowerPath.endsWith('.ps1');
 
-  if (!fs.existsSync(normalizedPath) || (!isPython && !isBatch && !isMacCommand)) {
-    return res.status(400).json({ error: '有効なスクリプト(.py, .bat, .command, .sh)ではありません' });
+  if (!fs.existsSync(normalizedPath) || (!isPython && !isBatch && !isExe && !isMacCommand)) {
+    return res.status(400).json({ error: '有効な実行ファイル(.py, .bat, .command, .sh, .exe)ではありません' });
+  }
+
+  if (isExe) {
+    const dir = path.dirname(normalizedPath);
+    const launchCmd = process.platform === 'win32'
+      ? `start "" /D "${dir}" "${normalizedPath}"`
+      : process.platform === 'darwin'
+        ? `open "${normalizedPath}"`
+        : `xdg-open "${normalizedPath}"`;
+
+    exec(launchCmd, (error) => {
+      if (error) {
+        console.error('Launch Error:', error.message);
+      }
+    });
+
+    return res.json({ success: true, stdout: '実行ファイルを起動しました', stderr: '', error: null, openedTerminal: true });
   }
 
   if (isBatch || isMacCommand) {
@@ -531,17 +559,19 @@ app.get('/api/preferences', (_req, res) => {
   res.json({
     favorites: config.favorites || [],
     pinned: config.pinned || [],
+    assetOrder: config.assetOrder || [],
   });
 });
 
 // お気に入り・ピン留め保存
 app.post('/api/preferences', (req, res) => {
-  const { favorites, pinned } = req.body;
+  const { favorites, pinned, assetOrder } = req.body;
   const config = loadConfig();
   if (Array.isArray(favorites)) config.favorites = favorites;
   if (Array.isArray(pinned)) config.pinned = pinned;
+  if (Array.isArray(assetOrder)) config.assetOrder = assetOrder;
   saveConfig(config);
-  res.json({ success: true, favorites: config.favorites, pinned: config.pinned });
+  res.json({ success: true, favorites: config.favorites, pinned: config.pinned, assetOrder: config.assetOrder });
 });
 
 // サーバー起動
