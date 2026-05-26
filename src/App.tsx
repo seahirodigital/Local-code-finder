@@ -641,12 +641,35 @@ function getExecutableFilePriority(fileName: string) {
   return 99;
 }
 
+function getBatchFilePriority(fileName: string) {
+  const baseName = fileName.replace(/\.[^.]+$/, '').toLowerCase();
+  if (baseName === 'start') return 0;
+  if (baseName.startsWith('run')) return 1;
+  return 2;
+}
+
 function sortExecutableFiles(files: { name: string, path: string }[]) {
   return [...files].sort((a, b) => {
     const priorityDiff = getExecutableFilePriority(a.name) - getExecutableFilePriority(b.name);
     if (priorityDiff !== 0) return priorityDiff;
+    if (a.name.toLowerCase().endsWith('.bat') && b.name.toLowerCase().endsWith('.bat')) {
+      const batchPriorityDiff = getBatchFilePriority(a.name) - getBatchFilePriority(b.name);
+      if (batchPriorityDiff !== 0) return batchPriorityDiff;
+    }
     return a.name.localeCompare(b.name, 'ja') || a.path.localeCompare(b.path, 'ja');
   });
+}
+
+function findExecutableFiles(nodes: any[], result: { name: string, path: string }[] = []) {
+  for (const node of nodes) {
+    const fileName = node.name.toLowerCase();
+    if (node.type === 'file' && (fileName.endsWith('.py') || fileName.endsWith('.bat') || fileName.endsWith('.command') || fileName.endsWith('.sh') || fileName.endsWith('.exe'))) {
+      result.push(node);
+    } else if (node.type === 'directory' && node.children) {
+      findExecutableFiles(node.children, result);
+    }
+  }
+  return result;
 }
 
 const ScriptSelectModal = ({ isOpen, onClose, directoryPath, onExecute }: { isOpen: boolean; onClose: () => void; directoryPath: string | null; onExecute: (p: string) => void }) => {
@@ -657,18 +680,7 @@ const ScriptSelectModal = ({ isOpen, onClose, directoryPath, onExecute }: { isOp
     if (isOpen && directoryPath) {
       setLoading(true);
       fetchDirectoryTree(directoryPath).then(tree => {
-        const findScriptFiles = (nodes: any[], result: any[] = []) => {
-          for (const node of nodes) {
-            const fileName = node.name.toLowerCase();
-            if (node.type === 'file' && (fileName.endsWith('.py') || fileName.endsWith('.bat') || fileName.endsWith('.command') || fileName.endsWith('.sh') || fileName.endsWith('.exe'))) {
-              result.push(node);
-            } else if (node.type === 'directory' && node.children) {
-              findScriptFiles(node.children, result);
-            }
-          }
-          return result;
-        };
-        setScriptFiles(sortExecutableFiles(findScriptFiles(tree)));
+        setScriptFiles(sortExecutableFiles(findExecutableFiles(tree)));
         setLoading(false);
       }).catch(() => { setScriptFiles([]); setLoading(false); });
     }
@@ -725,7 +737,7 @@ export default function App() {
   const [assetOrder, setAssetOrder] = useState<string[]>([]);
   const [preferencesLoaded, setPreferencesLoaded] = useState(false);
   const [draggedAssetId, setDraggedAssetId] = useState<string | null>(null);
-  const [showFavorites, setShowFavorites] = useState(false);
+  const [showFavorites, setShowFavorites] = useState(true);
   const pendingAssetOrderRef = useRef<string[] | null>(null);
   const draggedAssetIdRef = useRef<string | null>(null);
 
@@ -792,6 +804,14 @@ export default function App() {
         setExecResult(r); setShowExecResult(true);
       }
     } else if (a.isDirectory && a.executable) {
+      try {
+        const tree = await fetchDirectoryTree(a.filePath);
+        const executableFiles = sortExecutableFiles(findExecutableFiles(tree));
+        if (executableFiles.length === 1) {
+          await executeSelectedScript(executableFiles[0].path);
+          return;
+        }
+      } catch {}
       setScriptSelectDirPath(a.filePath);
       setShowScriptSelect(true);
     } else { 
