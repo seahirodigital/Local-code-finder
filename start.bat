@@ -81,23 +81,21 @@ if not exist "%RUNTIME_DIR%\node_modules\vite\bin\vite.js" (
 )
 
 echo [3/4] Starting backend server on port 3001...
-start "PAN_Backend" /min "%SOURCE_DIR%\start-backend.bat"
+:: PowerShell で バックエンドを完全非表示・デタッチプロセスとして起動
+powershell -NoProfile -WindowStyle Hidden -Command "Start-Process -FilePath '%NODE_EXE%' -ArgumentList '%RUNTIME_DIR%\node_modules\tsx\dist\cli.mjs watch server/index.ts' -WorkingDirectory '%RUNTIME_DIR%' -WindowStyle Hidden"
 
-echo [4/4] Opening browser in a few seconds...
-start "PAN_OpenBrowser" /min powershell -NoProfile -Command "Start-Sleep -Seconds 8; Start-Process 'http://localhost:3000'"
+echo [4/4] Starting Vite frontend server on port 3000...
+:: PowerShell で Vite フロントエンドを完全非表示・デタッチプロセスとして起動
+powershell -NoProfile -WindowStyle Hidden -Command "Start-Process -FilePath '%NODE_EXE%' -ArgumentList '%RUNTIME_DIR%\node_modules\vite\bin\vite.js --port=3000 --host=0.0.0.0' -WorkingDirectory '%RUNTIME_DIR%' -WindowStyle Hidden"
 
-echo.
-echo ========================================
-echo   PAN v2.0 Running
-echo   Source:   %SOURCE_DIR%
-echo   Runtime:  %RUNTIME_DIR%
-echo   Frontend: http://localhost:3000
-echo   Backend:  http://localhost:3001
-echo ========================================
-echo.
+:: サーバー起動まで8秒待機（timeout はコンソール非表示時に動作しないため ping で代替）
+ping 127.0.0.1 -n 9 >nul
 
-cd /d "%RUNTIME_DIR%"
-"%NODE_EXE%" "%RUNTIME_DIR%\node_modules\vite\bin\vite.js" --port=3000 --host=0.0.0.0
+:: ブラウザを自動オープン
+start chrome http://localhost:3000
+
+:: ブラウザを閉じると12秒以内にサーバーが自動終了する
+ping 127.0.0.1 -n 3 >nul
 goto :end
 
 :resolve_node

@@ -590,3 +590,41 @@ process.on('SIGINT', async () => {
   server.close();
   process.exit(0);
 });
+
+// ===================================================================
+// ハートビート機能（ブラウザ連動自動終了）
+// ブラウザが開いている間は5秒ごとに /api/heartbeat へ POST が届く。
+// 12秒以上途絶えた場合＝ブラウザを閉じたと判断し、自動終了する。
+// 起動直後25秒間はグレースピリオドとして終了チェックをスキップする。
+// ===================================================================
+let lastHeartbeat = Date.now();
+const SERVER_START_TIME = Date.now();
+
+app.post('/api/heartbeat', (_req, res) => {
+  lastHeartbeat = Date.now();
+  res.sendStatus(200);
+});
+
+setInterval(() => {
+  const now = Date.now();
+  const elapsed = now - SERVER_START_TIME;
+  const silence = now - lastHeartbeat;
+
+  // 起動後25秒のグレースピリオド中は何もしない
+  if (elapsed < 25000) return;
+
+  // 12秒以上ハートビートが途絶えたらプロセスを完全終了
+  if (silence > 12000) {
+    console.log('\nブラウザ接続が検出されませんでした。サーバーを自動終了します...');
+    
+    // Windows環境の場合、ポート3000（Viteフロントエンド）のプロセスを道連れにして終了させる
+    if (process.platform === 'win32') {
+      exec('powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }"');
+    }
+    
+    // プロセス終了を確実にするため1秒待ってから自分自身（バックエンド）を終了
+    setTimeout(() => {
+      process.exit(0);
+    }, 1000);
+  }
+}, 5000);
